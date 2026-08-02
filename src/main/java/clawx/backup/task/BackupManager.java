@@ -2,6 +2,8 @@ package clawx.backup.task;
 
 import clawx.backup.ClawBackup;
 import clawx.backup.config.BackupConfig;
+import clawx.backup.integration.CloudUploader;
+import clawx.backup.integration.NotificationManager;
 import clawx.backup.util.Message;
 import clawx.backup.util.SchedulerUtil;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
@@ -115,6 +117,13 @@ public class BackupManager {
 
         running.set(true);
         cancelled.set(false);
+
+        // 备份开始通知（后台异步，不阻塞）
+        if (config.isNotifyOnBackupStart()) {
+            final String startTrigger = trigger;
+            CompletableFuture.runAsync(() ->
+                NotificationManager.notifyStart(config, "触发: " + startTrigger));
+        }
 
         String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
         String backupName = "backup_" + trigger + "_" + timestamp;
@@ -386,8 +395,12 @@ public class BackupManager {
             Message.log("§e[备份] §f  文件: §7" + zipFile.getFileName());
             Message.log("§e[备份] §f  大小: §7" + sizeStr + " §8| §7耗时: §7" + timeStr);
             Message.log("§e[备份] §f  文件数: §7" + processedFiles.get() + "/" + totalFiles.get());
-            if (fileLockSkipped > 0)
-                Message.log("§e[备份] §6  ⚠ 跳过被锁文件: §7" + fileLockSkipped);
+            if (fileLockSkipped > 0) {
+                Message.log("§e[备份] §6  ⚠ 跳过被锁文件: §7" + fileLockSkipped + " 个");
+                for (String f : skippedFiles) {
+                    Message.log("§e[备份] §6    - §7" + f);
+                }
+            }
             if (tpsPauses > 0)
                 Message.log("§e[备份] §6  ⏸ TPS 暂停次数: §7" + tpsPauses);
             Message.log("§e[备份] §a==================================");
@@ -423,16 +436,36 @@ public class BackupManager {
             result.setTotalFiles(totalFiles.get());
             result.setSkippedFiles(fileLockSkipped);
             result.setSkippedFileNames(skippedFiles);
+
+            // 云备份上传 + 成功通知（后台异步，不阻塞备份完成）
+            final long okElapsed = elapsed;
+            final long okSize = fileSize;
+            CompletableFuture.runAsync(() -> {
+                CloudUploader.upload(config, zipFile);
+                NotificationManager.notifyResult(config, true, "【ClawBackup】备份完成",
+                        "文件: " + zipFile.getFileName()
+                                + "\n大小: " + formatSize(okSize)
+                                + "\n耗时: " + formatTime(okElapsed)
+                                + "\n文件数: " + processedFiles.get() + "/" + totalFiles.get());
+            });
+
             return result;
 
         } catch (CancellationException e) {
             Message.log("§e[备份] §6备份任务已取消");
             try { Files.deleteIfExists(zipFile); } catch (IOException ignored) {}
+            CompletableFuture.runAsync(() ->
+                NotificationManager.notifyResult(config, false, "【ClawBackup】备份取消",
+                        "原因: 任务被取消"));
             return new BackupResult(false, "已取消", null);
         } catch (Exception e) {
             Message.log("§c[备份] §4备份失败: " + e.getMessage());
             e.printStackTrace();
             try { Files.deleteIfExists(zipFile); } catch (IOException ignored) {}
+            final String failReason = e.getMessage() != null ? e.getMessage() : "未知异常";
+            CompletableFuture.runAsync(() ->
+                NotificationManager.notifyResult(config, false, "【ClawBackup】备份失败",
+                        "原因: " + failReason));
             return new BackupResult(false, e.getMessage(), null);
         } finally {
             // 兜底恢复自动保存（任何退出路径都会执行）

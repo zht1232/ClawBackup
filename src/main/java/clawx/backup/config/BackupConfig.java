@@ -91,6 +91,34 @@ public class BackupConfig {
     private List<String> postRestoreCommands = Collections.emptyList();
     private boolean autoHookPlugins = true;
 
+    // ==== 云备份上传 ====
+    private boolean cloudBackupEnabled = false;
+    private boolean githubEnabled = false;
+    private String githubToken = "";
+    private String githubRepo = "zht1232/ClawBackup";
+    private boolean baiduEnabled = false;
+    private String baiduAccessToken = "";
+    private long baiduAppId = 0;
+    private String baiduDir = "/apps/ClawBackup";
+
+    // ==== 告警通知 ====
+    private boolean notifyOnBackupSuccess = true;
+    private boolean notifyOnBackupFailure = true;
+    private boolean notifyOnBackupStart = false;
+    private boolean emailEnabled = false;
+    private String emailHost = "smtp.qq.com";
+    private int emailPort = 465;
+    private boolean emailSsl = true;
+    private String emailUsername = "";
+    private String emailPassword = "";
+    private String emailFrom = "";
+    private List<String> emailTo = Collections.emptyList();
+    private boolean feishuEnabled = false;
+    private String feishuWebhook = "";
+    private boolean dingtalkEnabled = false;
+    private String dingtalkWebhook = "";
+    private String dingtalkSecret = "";
+
     public BackupConfig(ClawBackup plugin) {
         this.plugin = plugin;
         this.configFile = new File(plugin.getDataFolder(), "config.yml");
@@ -256,6 +284,34 @@ public class BackupConfig {
         postRestoreCommands = config.getStringList("restore.post-restore-commands");
         autoHookPlugins = config.getBoolean("restore.auto-hook-plugins", autoHookPlugins);
 
+        // 云备份上传
+        cloudBackupEnabled = config.getBoolean("cloud-backup.enabled", cloudBackupEnabled);
+        githubEnabled = config.getBoolean("cloud-backup.github.enabled", githubEnabled);
+        githubToken = config.getString("cloud-backup.github.token", githubToken).trim();
+        githubRepo = config.getString("cloud-backup.github.repo", githubRepo).trim();
+        baiduEnabled = config.getBoolean("cloud-backup.baidu.enabled", baiduEnabled);
+        baiduAccessToken = config.getString("cloud-backup.baidu.access-token", baiduAccessToken).trim();
+        baiduAppId = Math.max(0, config.getLong("cloud-backup.baidu.app-id", baiduAppId));
+        baiduDir = config.getString("cloud-backup.baidu.dir", baiduDir).trim();
+
+        // 告警通知
+        notifyOnBackupSuccess = config.getBoolean("notify.on-backup-success", notifyOnBackupSuccess);
+        notifyOnBackupFailure = config.getBoolean("notify.on-backup-failure", notifyOnBackupFailure);
+        notifyOnBackupStart = config.getBoolean("notify.on-backup-start", notifyOnBackupStart);
+        emailEnabled = config.getBoolean("notify.email.enabled", emailEnabled);
+        emailHost = config.getString("notify.email.host", emailHost).trim();
+        emailPort = config.getInt("notify.email.port", emailPort);
+        emailSsl = config.getBoolean("notify.email.ssl", emailSsl);
+        emailUsername = config.getString("notify.email.username", emailUsername).trim();
+        emailPassword = config.getString("notify.email.password", emailPassword).trim();
+        emailFrom = config.getString("notify.email.from", emailFrom).trim();
+        emailTo = config.getStringList("notify.email.to");
+        feishuEnabled = config.getBoolean("notify.feishu.enabled", feishuEnabled);
+        feishuWebhook = config.getString("notify.feishu.webhook", feishuWebhook).trim();
+        dingtalkEnabled = config.getBoolean("notify.dingtalk.enabled", dingtalkEnabled);
+        dingtalkWebhook = config.getString("notify.dingtalk.webhook", dingtalkWebhook).trim();
+        dingtalkSecret = config.getString("notify.dingtalk.secret", dingtalkSecret).trim();
+
         // 调试：记录加载的路径
         plugin.getLogger().info("[配置] 备份路径: '" + backupPath + "' → 解析: " + getResolvedBackupPath());
     }
@@ -327,4 +383,32 @@ public class BackupConfig {
     public List<String> getRestoreExcludedPlugins() { return restoreExcludedPlugins; }
     public List<String> getPostRestoreCommands() { return postRestoreCommands; }
     public boolean isAutoHookPlugins() { return autoHookPlugins; }
+
+    // ===== 云备份上传 =====
+    public boolean isCloudBackupEnabled() { return cloudBackupEnabled; }
+    public boolean isGithubEnabled() { return githubEnabled; }
+    public String getGithubToken() { return githubToken; }
+    public String getGithubRepo() { return githubRepo; }
+    public boolean isBaiduEnabled() { return baiduEnabled; }
+    public String getBaiduAccessToken() { return baiduAccessToken; }
+    public long getBaiduAppId() { return baiduAppId; }
+    public String getBaiduDir() { return baiduDir; }
+
+    // ===== 告警通知 =====
+    public boolean isNotifyOnBackupSuccess() { return notifyOnBackupSuccess; }
+    public boolean isNotifyOnBackupFailure() { return notifyOnBackupFailure; }
+    public boolean isNotifyOnBackupStart() { return notifyOnBackupStart; }
+    public boolean isEmailEnabled() { return emailEnabled; }
+    public String getEmailHost() { return emailHost; }
+    public int getEmailPort() { return emailPort; }
+    public boolean isEmailSsl() { return emailSsl; }
+    public String getEmailUsername() { return emailUsername; }
+    public String getEmailPassword() { return emailPassword; }
+    public String getEmailFrom() { return emailFrom; }
+    public List<String> getEmailTo() { return emailTo; }
+    public boolean isFeishuEnabled() { return feishuEnabled; }
+    public String getFeishuWebhook() { return feishuWebhook; }
+    public boolean isDingtalkEnabled() { return dingtalkEnabled; }
+    public String getDingtalkWebhook() { return dingtalkWebhook; }
+    public String getDingtalkSecret() { return dingtalkSecret; }
 }

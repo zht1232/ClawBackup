@@ -1,5 +1,5 @@
 # ===================================================
-#          🐾 ClawBackup v1.3.0 - 配置文件
+#          🐾 ClawBackup v1.4.1 - 配置文件
 #   专业 Minecraft 服务器备份插件 · 开源社区版
 #   兼容 Paper / Spigot / Purpur / Folia  |  MC 1.16 ~ 26.2
 # ===================================================
@@ -176,3 +176,61 @@ restore:
   # 如果手动配置了 pre-backup-commands/post-restore-commands，则不会重复执行
   # 目前支持: LuckPerms, QuickShop
   auto-hook-plugins: true
+
+# ---------- 云备份上传 ----------
+cloud-backup:
+  # 备份完成后自动上传到云端（当前支持: GitHub、百度网盘）
+  enabled: false
+
+  # GitHub（上传为 Release 附件，支持大文件）
+  github:
+    enabled: false
+    # GitHub Personal Access Token（需要 repo 权限）
+    # 生成: GitHub → Settings → Developer settings → Personal access tokens → Generate new token
+    token: ""
+    # 目标仓库（owner/repo）
+    repo: "zht1232/ClawBackup"
+
+  # 百度网盘（需要百度开发者应用 + OAuth 授权获取 access_token）
+  # 1. 前往百度网盘开放平台申请应用，获取 app_id / api_key / secret_key
+  # 2. 用 api_key/secret_key 完成 OAuth 授权，换取 access_token 填入下方
+  baidu:
+    enabled: false
+    access-token: ""
+    app-id: 0
+    # 上传到网盘中的目录
+    dir: "/apps/ClawBackup"
+
+# ---------- 告警通知 ----------
+notify:
+  # 通知时机
+  on-backup-success: true
+  on-backup-failure: true
+  on-backup-start: false
+
+  # 邮件通知（SMTP）
+  email:
+    enabled: false
+    # SMTP 服务器（QQ: smtp.qq.com / 163: smtp.163.com / Gmail: smtp.gmail.com）
+    host: "smtp.qq.com"
+    port: 465
+    ssl: true
+    # 登录邮箱账号（QQ/163 需在邮箱设置中开启 SMTP 并生成授权码作为密码）
+    username: ""
+    password: ""
+    # 发件人（留空则用 username）
+    from: ""
+    # 收件人列表
+    to: []
+
+  # 飞书机器人通知（自定义机器人 webhook）
+  feishu:
+    enabled: false
+    webhook: ""
+
+  # 钉钉机器人通知（自定义机器人 webhook，支持加签）
+  dingtalk:
+    enabled: false
+    webhook: ""
+    # 加签密钥（若机器人设置了加签，填 SEC... 开头的密钥；未设置可留空）
+    secret: ""

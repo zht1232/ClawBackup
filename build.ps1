@@ -19,6 +19,20 @@ $SrcDir     = Join-Path $ProjectDir "src\main\java"
 $ResDir     = Join-Path $ProjectDir "src\main\resources"
 $BuildDir   = Join-Path $ProjectDir "build_tmp"
 $ClassesDir = Join-Path $BuildDir "classes"
+$LibsDir    = Join-Path $ProjectDir "libs"
+
+# ===== Ensure bundled deps (downloaded once; cached in ./libs) =====
+$MailJar = Join-Path $LibsDir "javax.mail-1.6.2.jar"
+$ActJar  = Join-Path $LibsDir "activation-1.1.1.jar"
+if (-not (Test-Path $MailJar)) {
+    Write-Host "[deps] Downloading javax.mail-1.6.2.jar ..."
+    New-Item -ItemType Directory -Force -Path $LibsDir | Out-Null
+    Invoke-WebRequest -Uri "https://repo1.maven.org/maven2/com/sun/mail/javax.mail/1.6.2/javax.mail-1.6.2.jar" -OutFile $MailJar -UseBasicParsing
+}
+if (-not (Test-Path $ActJar)) {
+    Write-Host "[deps] Downloading activation-1.1.1.jar ..."
+    Invoke-WebRequest -Uri "https://repo1.maven.org/maven2/javax/activation/activation/1.1.1/activation-1.1.1.jar" -OutFile $ActJar -UseBasicParsing
+}
 
 # ===== Read version from plugin.yml =====
 $PluginYml = Join-Path $ResDir "plugin.yml"
@@ -32,7 +46,11 @@ Write-Host "==== ClawBackup build v$Version ===="
 # 1. Compile
 Write-Host "[1/4] Compiling (Java 8 bytecode)..."
 if (-not (Test-Path $LibrariesDir)) { throw "Libraries dir not found: $LibrariesDir" }
-$Cp = @(Get-ChildItem -Path $LibrariesDir -Recurse -Filter *.jar | ForEach-Object { $_.FullName }) -join ';'
+$AllJars = @(Get-ChildItem -Path $LibrariesDir -Recurse -Filter *.jar | ForEach-Object { $_.FullName })
+if (Test-Path $LibsDir) {
+    $AllJars += @(Get-ChildItem -Path $LibsDir -Filter *.jar | ForEach-Object { $_.FullName })
+}
+$Cp = $AllJars -join ';'
 if (Test-Path $ClassesDir) { Remove-Item -Recurse -Force $ClassesDir }
 New-Item -ItemType Directory -Force -Path $ClassesDir | Out-Null
 $Files = @(Get-ChildItem -Path $SrcDir -Recurse -Filter *.java | ForEach-Object { $_.FullName })
@@ -44,8 +62,20 @@ if ($LASTEXITCODE -ne 0) { throw "Compile failed (exit=$LASTEXITCODE)" }
 Write-Host "[2/4] Copying resources..."
 Copy-Item -Path (Join-Path $ResDir "*") -Destination $ClassesDir -Recurse -Force
 
-# 3. Package jar
-Write-Host "[3/4] Packaging jar..."
+# 3. Package jar (bundle libs deps into the jar)
+Write-Host "[3/4] Packaging jar (bundling deps)..."
+if (Test-Path $LibsDir) {
+    Get-ChildItem -Path $LibsDir -Filter *.jar | ForEach-Object {
+        Write-Host "    bundling $($_.Name)"
+        Push-Location $ClassesDir
+        jar xf $_.FullName
+        Pop-Location
+    }
+    # Remove jar signature files to avoid SecurityException at runtime
+    Get-ChildItem -Path $ClassesDir -Recurse -Include *.SF,*.RSA,*.DSA -ErrorAction SilentlyContinue | Remove-Item -Force
+    # Drop bundled META-INF so a clean manifest is regenerated
+    Remove-Item -Recurse -Force (Join-Path $ClassesDir "META-INF") -ErrorAction SilentlyContinue
+}
 $JarTmp = Join-Path $BuildDir $JarName
 if (Test-Path $JarTmp) { Remove-Item -Force $JarTmp }
 jar cf $JarTmp -C $ClassesDir .
