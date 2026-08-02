@@ -1,0 +1,26 @@
+name: ClawBackup
+version: 1.3.0
+main: clawx.backup.ClawBackup
+api-version: "1.16"
+description: "🐾 ClawBackup - 专业Minecraft服务器备份插件 | 支持 Paper / Spigot / Purpur / Folia | 多版本兼容 1.16-26.2"
+author: CrystalKingdom
+website: https://github.com/ClawX/ClawBackup
+
+softdepend:
+  - Multiverse-Core
+  - MultiWorld
+  - PlaceholderAPI
+
+commands:
+  clawbackup:
+    description: "ClawBackup 主命令"
+    aliases: [cb, cbackup]
+    usage: "§6/§ecb <backup|restore|list|schedule|status|reload|clean|cancel|info> §7- 查看帮助"
+
+permissions:
+  clawbackup.admin:
+    description: "ClawBackup 管理权限（回档、重载、清理）"
+    default: op
+  clawbackup.backup:
+    description: "执行手动备份"
+    default: op

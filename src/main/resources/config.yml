@@ -1,0 +1,178 @@
+# ===================================================
+#          🐾 ClawBackup v1.3.0 - 配置文件
+#   专业 Minecraft 服务器备份插件 · 开源社区版
+#   兼容 Paper / Spigot / Purpur / Folia  |  MC 1.16 ~ 26.2
+# ===================================================
+
+# ---------- 备份目标 ----------
+backup:
+  # 是否备份 plugins 目录
+  plugins: true
+
+  # 是否备份世界目录
+  worlds: true
+
+  # 自动发现世界目录 (通过扫描根目录下的 level.dat)
+  # 启用后会自动检测多世界插件创建的所有世界，无需手动填写 world-list
+  # 关闭后仅备份 world-list 中列出的目录
+  world-auto-discover: true
+
+  # 手动世界列表 (自动发现未找到时使用，或作为补充)
+  world-list:
+    - world
+    - world_nether
+    - world_the_end
+
+  # 排除的插件目录（不备份这些插件）
+  excluded-plugins:
+    - ClawBackup
+
+  # 排除的世界目录（不备份这些世界）
+  excluded-worlds: []
+
+  # 备份前执行的命令（让插件保存/导出数据）
+  # 适用于使用文件数据库的插件（如 LuckPerms）
+  # 命令会在 save-all 之后、开始打包之前执行
+  # 示例: ["lp export backup", "someplugin save"]
+  pre-backup-commands: []
+
+# ---------- 存储设置 ----------
+storage:
+  # 备份存放路径
+  # - 相对路径: 相对于服务器根目录
+  # - 绝对路径: 支持跨磁盘存放，例如: D:\MinecraftBackups
+  backup-path: "backups"
+
+  # ZIP 压缩等级 (0=仅存储不压缩, 1=最快, 6=默认, 9=最高压缩)
+  # 注意: 等级越高越慢但文件越小
+  compression-level: 6
+
+  # 是否使用临时目录先构建再移动（可加快最终写入速度）
+  use-temp-dir: false
+
+  # 临时目录路径
+  temp-path: "plugins/ClawBackup/temp"
+
+# ---------- 调度设置 ----------
+schedule:
+  # 是否启用定时自动备份
+  enabled: true
+
+  # 自动备份间隔（分钟）
+  interval-minutes: 120
+
+  # 服务器启动时是否延迟 10 秒后立即备份
+  backup-on-start: true
+
+  # 服务器关闭时是否备份
+  backup-on-stop: false
+
+# ---------- 智能备份 ----------
+smart:
+  # 是否启用智能备份
+  # 启用后，当服务器在线玩家低于阈值时自动跳过备份
+  enabled: true
+
+  # 最少玩家在线数（低于此值跳过备份）
+  # 0 = 只要有玩家在线就备份（无玩家时跳过）
+  # 1 = 至少有 1 个玩家才备份（没有人时跳过）
+  min-players: 0
+
+# ---------- 保留策略 ----------
+retention:
+  # 最大备份数量（超出后删除最旧的）
+  max-backups: 30
+
+  # 磁盘最小剩余空间（MB），低于此值时拒绝备份
+  min-free-space-mb: 500
+
+# ---------- 高级设置 ----------
+advanced:
+  # 文件锁重试次数（处理部分插件运行时锁定文件的问题）
+  file-lock-retries: 3
+
+  # 文件锁重试间隔（毫秒）
+  file-lock-retry-delay-ms: 1000
+
+  # 备份期间是否暂停自动保存（防止世界文件被修改）
+  disable-autosave-during-backup: true
+
+  # 备份前是否执行 save-all（确保数据落盘）
+  save-all-before-backup: true
+
+  # 单个备份任务超时时间（分钟）
+  backup-timeout-minutes: 30
+
+  # 排除的文件类型（不备份这些后缀/文件名的文件）
+  # 默认排除日志和临时文件，减少备份体积
+  exclude-file-types:
+    - .log
+    - .tmp
+    - .DS_Store
+    - thumbs.db
+
+  # ===== IO 限速（防止备份把磁盘 IO 吃满卡服） =====
+  # 限制备份写入速度 (KB/s)，0 = 不限速
+  # 建议: 机械硬盘 5000-10000，SSD 可设 0（不限速）
+  io-throttle-kbps: 0
+
+  # IO 限速块大小 (KB)，每次写这么多数据后检查速度
+  io-throttle-chunk-kb: 64
+
+  # ===== TPS 保护 =====
+  # 启用后，备份过程中会检测服务器 TPS
+  # 当 TPS 低于阈值时，暂停写入 — 在 Paper/Purpur 上通过反射调用 getTPS()
+  # Spigot 环境下自动回退为 20.0，不触发 TPS 保护
+  tps-protection-enabled: true
+
+  # TPS 阈值（低于此值触发 5 秒暂停保护）
+  # Paper 服务器正常 TPS 为 20.0
+  tps-threshold: 15.0
+
+  # ===== 广播倒计时 =====
+  # 备份开始前是否在聊天框广播倒计时
+  broadcast-countdown: true
+
+  # 倒计时秒数（设为 0 则不倒计时，直接开始）
+  countdown-seconds: 5
+
+# ---------- 通知设置 ----------
+notification:
+  # 是否通知在线玩家备份状态
+  notify-players: true
+
+  # 是否显示备份进度（控制台）
+  show-progress: true
+
+  # 进度更新间隔（tick，20 tick = 1秒）
+  progress-interval-ticks: 20
+
+# ---------- 回档设置 ----------
+restore:
+  # 回档完成后是否自动关闭服务器
+  # 启用后，回档完成会延迟 N 秒后执行 /stop
+  # 配合启动脚本（如 start.sh 的循环重启）可实现自动重启
+  # 如果设为 false，需要管理员手动执行 /stop 重启
+  auto-stop-after-restore: true
+
+  # 自动关闭前的延迟秒数（给管理员查看日志的时间）
+  # 设为 0 则立即关闭
+  auto-stop-delay-seconds: 5
+
+  # 回档时排除的插件目录（不覆盖这些插件的数据）
+  # 适用于使用文件数据库的插件（如 LuckPerms 的 H2 数据库）
+  # 填写插件在 plugins 目录下的文件夹名
+  # 例: ["LuckPerms", "SomeOtherPlugin"]
+  excluded-plugins: []
+
+  # 回档后执行的命令（服务器重启后执行）
+  # 适用于需要导入数据的插件（如 LuckPerms）
+  # 注意：命令会在服务器启动完成后执行
+  # 示例: ["lp import backup"]
+  post-restore-commands: []
+
+  # 是否自动检测插件并挂钩
+  # 启用后，备份前自动执行导出命令，回档后自动执行导入命令
+  # 如果手动配置了 pre-backup-commands/post-restore-commands，则不会重复执行
+  # 目前支持: LuckPerms, QuickShop
+  auto-hook-plugins: true
