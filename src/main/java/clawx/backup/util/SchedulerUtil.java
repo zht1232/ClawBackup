@@ -7,7 +7,7 @@ import org.bukkit.plugin.Plugin;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 调度工具 - 兼容 Paper / Spigot / Folia
+ * 调度工具 - 兼容 Paper / Purpur / Folia
  * <p>
  * Paper 1.20.4+ 与 Folia 均提供区域调度 API（io.papermc.paper.threadedregions.scheduler）。
  * 统一使用该 API，避免直接调用 {@code Bukkit.getScheduler()}（Folia 上不存在，会抛异常）。

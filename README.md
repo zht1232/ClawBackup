@@ -4,7 +4,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-> 支持 **Paper / Spigot / Purpur / Folia** · MC **1.16 ~ 26.2** · Java 8+
+> 支持 **Paper / Purpur / Folia** · MC **1.16 ~ 26.2** · Java 8+
 > 当前版本 **1.4.1**
 
 ---
@@ -30,7 +30,7 @@
 | 平台 | 支持 |
 |---|---|
 | Paper (1.20.4+) | ✅ 完整支持 |
-| Spigot / Purpur | ✅ 完整支持 |
+| Purpur | ✅ 完整支持 |
 | Folia | ✅ 支持（区域调度 API 适配） |
 | 更早版本 (1.16+) | ✅ 调度兼容 |
 
@@ -118,7 +118,7 @@ notify:
 2. **凭据安全**：GitHub token、SMTP 授权码等**只存在你服务器上的 `config.yml`**，不会被提交到仓库（`libs/` 等已 gitignore）
 3. **邮件依赖**：构建时会自动下载 JavaMail 并打进 jar（构建脚本需联网一次）
 4. **123云盘**：无官方开放 API，暂不支持
-5. **最低要求**：Paper 1.20.4+ / Folia（纯 Spigot 无区域调度 API）
+5. **最低要求**：仅支持 Paper 1.20.4+ / Purpur / Folia（纯 Spigot 无区域调度 API，不支持）
 
 ## 构建
 

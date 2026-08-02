@@ -16,7 +16,7 @@ import java.io.File;
 /**
  * ClawBackup - 开源 Minecraft 服务器备份插件
  * <p>
- * 兼容 Paper / Spigot / Purpur / Folia（调度通过区域调度 API 统一适配）<br>
+ * 兼容 Paper / Purpur / Folia（调度通过区域调度 API 统一适配）<br>
  * 支持 Minecraft 1.16 ~ 26.2（需 Java 8+）
  * <p>
  * 主要功能：
@@ -58,6 +58,10 @@ public class ClawBackup extends JavaPlugin {
         if ("Folia".equals(serverType)) {
             Message.log("§e[ClawBackup] §a  ✔ 已启用 Folia 兼容模式（区域调度 API）");
         }
+        if ("Spigot".equals(serverType) || "Bukkit/Spigot (unknown)".equals(serverType)) {
+            Message.log("§e[ClawBackup] §c  ⚠ 检测到纯 Spigot/Bukkit：当前版本不支持纯 Spigot（依赖 Paper 区域调度 API），");
+            Message.log("§e[ClawBackup] §c    请使用 Paper / Purpur / Folia，否则插件可能无法正常调度！");
+        }
         String mcVer = Bukkit.getBukkitVersion();
         Message.log("§e[ClawBackup] §f  MC 版本: §b" + mcVer);
     }
@@ -69,7 +73,7 @@ public class ClawBackup extends JavaPlugin {
         Message.log("§e[ClawBackup] §f==================================");
         Message.log("§e[ClawBackup] §f       🐾 ClawBackup v" + getDescription().getVersion());
         Message.log("§e[ClawBackup] §f       开源服务器备份插件");
-        Message.log("§e[ClawBackup] §f       兼容 Paper/Spigot/Purpur/Folia 1.16-26.2");
+        Message.log("§e[ClawBackup] §f       兼容 Paper/Purpur/Folia 1.16-26.2");
         Message.log("§e[ClawBackup] §f==================================");
 
         // 1. 加载配置
