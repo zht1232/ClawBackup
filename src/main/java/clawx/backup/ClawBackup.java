@@ -225,13 +225,8 @@ public class ClawBackup extends JavaPlugin {
                         break;
                     }
                 }
-                // QuickShop：检测导出产物（quickshop export 的导出目录 / 导出文件）
-                java.nio.file.Path qsExportDir = java.nio.file.Paths.get("plugins/QuickShop-Hikari/export");
-                java.nio.file.Path qsExportFile = java.nio.file.Paths.get("plugins/QuickShop-Hikari/export.json");
-                if (hasAnyFile(qsExportDir) || java.nio.file.Files.exists(qsExportFile)) {
-                    postCommands.add("quickshop import");
-                    Message.log("§e[ClawBackup] §a✔ 检测到 QuickShop 导出文件，将在启动后导入");
-                }
+                // 说明：QuickShop-Hikari 无 export/import 命令（/qs help 确认），商店数据在 H2 无法热备份；
+                // 如需备份商店，请将 QuickShop 数据迁移到 MySQL（本插件不自动处理）。
             }
             if (!postCommands.isEmpty()) {
                 java.nio.file.Path cmdFile = java.nio.file.Paths.get("plugins/ClawBackup/post-restore-commands.txt");

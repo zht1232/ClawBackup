@@ -267,22 +267,13 @@ public class BackupManager {
 
             // 自动检测插件并添加导出命令
             if (config.isAutoHookPlugins()) {
-                // LuckPerms
+                // LuckPerms：备份前自动导出权限数据（生成 backup.json.gz 随备份打包）
                 if (Bukkit.getPluginManager().getPlugin("LuckPerms") != null) {
-                    boolean hasLpExport = preCommands.stream().anyMatch(cmd -> 
+                    boolean hasLpExport = preCommands.stream().anyMatch(cmd ->
                         cmd.toLowerCase().startsWith("lp export") || cmd.toLowerCase().startsWith("luckperms export"));
                     if (!hasLpExport) {
                         preCommands.add("lp export backup");
                         Message.log("§e[备份] §a✔ 检测到 LuckPerms，自动添加导出命令");
-                    }
-                }
-                // QuickShop
-                if (Bukkit.getPluginManager().getPlugin("QuickShop") != null) {
-                    boolean hasQsExport = preCommands.stream().anyMatch(cmd -> 
-                        cmd.toLowerCase().startsWith("qs export") || cmd.toLowerCase().startsWith("quickshop export"));
-                    if (!hasQsExport) {
-                        preCommands.add("quickshop export");
-                        Message.log("§e[备份] §a✔ 检测到 QuickShop，自动添加导出命令");
                     }
                 }
             }

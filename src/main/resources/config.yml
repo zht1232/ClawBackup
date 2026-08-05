@@ -1,5 +1,5 @@
 # ===================================================
-#          🐾 ClawBackup v1.4.7 - 配置文件
+#          🐾 ClawBackup v1.4.8 - 配置文件
 #   专业 Minecraft 服务器备份插件 · 开源社区版
 #   兼容 Paper / Purpur / Folia  |  MC 1.16 ~ 26.2
 # ===================================================
@@ -183,7 +183,7 @@ restore:
   # 是否自动检测插件并挂钩
   # 启用后，备份前自动执行导出命令，回档后自动执行导入命令
   # 如果手动配置了 pre-backup-commands/post-restore-commands，则不会重复执行
-  # 目前支持: LuckPerms, QuickShop
+  # 目前支持: LuckPerms（QuickShop 无导出命令，如需备份商店数据请将 QuickShop 迁移到 MySQL）
   auto-hook-plugins: true
 
 # ---------- 云备份上传 ----------
