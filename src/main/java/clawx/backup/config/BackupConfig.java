@@ -147,7 +147,16 @@ public class BackupConfig {
     }
 
     private void load() {
-        config = YamlConfiguration.loadConfiguration(configFile);
+        // 直接加载文件，解析失败时给出明确提示（而不是静默回退默认值，让用户误以为设置失效）
+        try {
+            config = new YamlConfiguration();
+            config.load(configFile);
+        } catch (Exception e) {
+            plugin.getLogger().severe("[配置] ❌ config.yml 解析失败！已临时使用默认配置，你的自定义设置不会生效。");
+            plugin.getLogger().severe("[配置] 常见原因：双引号字符串里的反斜杠需转义（如 \"D:\\\\path\"），建议改用正斜杠或单引号（如 'D:/path'）。");
+            plugin.getLogger().severe("[配置] 错误详情: " + e.getMessage());
+            config = new YamlConfiguration();
+        }
 
         // 备份目标
         backupPlugins = config.getBoolean("backup.plugins", backupPlugins);
