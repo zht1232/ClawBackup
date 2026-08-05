@@ -212,11 +212,21 @@ public class ClawBackup extends JavaPlugin {
             // 写入回档后命令标记文件（下次启动时执行）
             java.util.List<String> postCommands = new java.util.ArrayList<>(config.getPostRestoreCommands());
             if (config.isAutoHookPlugins()) {
-                // 检测 LuckPerms 导出文件是否存在
-                java.nio.file.Path lpExport = java.nio.file.Paths.get("plugins/LuckPerms/backup.json");
-                if (java.nio.file.Files.exists(lpExport)) {
-                    postCommands.add("lp import backup");
-                    Message.log("§e[ClawBackup] §a✔ 检测到 LuckPerms 导出文件，将在启动后导入");
+                // LuckPerms：检测导出文件（lp export 默认生成 backup.json，兼容 backup.yml）
+                String[] lpExportNames = {"plugins/LuckPerms/backup.json", "plugins/LuckPerms/backup.yml"};
+                for (String lpName : lpExportNames) {
+                    if (java.nio.file.Files.exists(java.nio.file.Paths.get(lpName))) {
+                        postCommands.add("lp import backup");
+                        Message.log("§e[ClawBackup] §a✔ 检测到 LuckPerms 导出文件，将在启动后导入");
+                        break;
+                    }
+                }
+                // QuickShop：检测导出产物（quickshop export 的导出目录 / 导出文件）
+                java.nio.file.Path qsExportDir = java.nio.file.Paths.get("plugins/QuickShop-Hikari/export");
+                java.nio.file.Path qsExportFile = java.nio.file.Paths.get("plugins/QuickShop-Hikari/export.json");
+                if (hasAnyFile(qsExportDir) || java.nio.file.Files.exists(qsExportFile)) {
+                    postCommands.add("quickshop import");
+                    Message.log("§e[ClawBackup] §a✔ 检测到 QuickShop 导出文件，将在启动后导入");
                 }
             }
             if (!postCommands.isEmpty()) {
@@ -228,6 +238,16 @@ public class ClawBackup extends JavaPlugin {
         } catch (Exception e) {
             Message.log("§c[ClawBackup] §4回档执行失败: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    /** 目录是否存在且非空 */
+    private static boolean hasAnyFile(java.nio.file.Path dir) {
+        if (!java.nio.file.Files.isDirectory(dir)) return false;
+        try (java.nio.file.DirectoryStream<java.nio.file.Path> ds = java.nio.file.Files.newDirectoryStream(dir)) {
+            return ds.iterator().hasNext();
+        } catch (Exception e) {
+            return false;
         }
     }
 
