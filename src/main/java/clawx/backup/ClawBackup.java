@@ -2,6 +2,7 @@ package clawx.backup;
 
 import clawx.backup.command.BackupCommand;
 import clawx.backup.config.BackupConfig;
+import clawx.backup.integration.CustomNameplatesExporter;
 import clawx.backup.task.BackupManager;
 import clawx.backup.task.BackupScheduler;
 import clawx.backup.task.PlayerTracker;
@@ -308,6 +309,14 @@ public class ClawBackup extends JavaPlugin {
     private void checkAndExecutePostRestoreCommands() {
         java.nio.file.Path markerFile = java.nio.file.Paths.get("plugins/ClawBackup/post-restore-commands.txt");
         if (!java.nio.file.Files.exists(markerFile)) return;
+
+        // 回档后 CustomNameplates 数据导入（延迟异步执行，等待插件就绪后写回 H2）
+        if (config.isAutoHookPlugins() && CustomNameplatesExporter.isAvailable()) {
+            SchedulerUtil.runAsync(this, () -> {
+                try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                CustomNameplatesExporter.restore();
+            });
+        }
 
         try {
             java.util.List<String> commands = java.nio.file.Files.readAllLines(markerFile);

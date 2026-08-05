@@ -6,6 +6,7 @@ import clawx.backup.integration.http.SimpleHttp;
 import clawx.backup.integration.http.SimpleHttp.Response;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,7 +30,7 @@ public final class GitHubUploader {
         if (repo.isEmpty() || !repo.contains("/")) throw new IllegalStateException("GitHub repo 格式应为 owner/repo");
 
         String fileName = zipFile.getFileName().toString();
-        String tag = "backup-" + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date());
+        String tag = "backup-" + new SimpleDateFormat("yyyyMMdd-HHmmssSSS").format(new Date());
 
         Map<String, String> headers = new HashMap<>();
         headers.put("Authorization", "token " + token);
@@ -49,9 +50,11 @@ public final class GitHubUploader {
         if (brace >= 0) uploadUrl = uploadUrl.substring(0, brace);
         uploadUrl += "?name=" + URLEncoder.encode(fileName, "UTF-8");
 
-        // 2. 上传 asset（文件原始字节）
-        byte[] data = Files.readAllBytes(zipFile);
-        Response up = SimpleHttp.postBytes(uploadUrl, data, "application/octet-stream", headers);
-        if (!up.isOk()) throw new IOException("上传 asset 失败 HTTP " + up.code + ": " + up.body);
+        // 2. 上传 asset（流式上传，避免大备份读入内存导致 OOM）
+        long size = Files.size(zipFile);
+        try (InputStream in = Files.newInputStream(zipFile)) {
+            Response up = SimpleHttp.postStream(uploadUrl, size, in, "application/octet-stream", headers);
+            if (!up.isOk()) throw new IOException("上传 asset 失败 HTTP " + up.code + ": " + up.body);
+        }
     }
 }

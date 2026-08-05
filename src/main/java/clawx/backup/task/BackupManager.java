@@ -3,6 +3,7 @@ package clawx.backup.task;
 import clawx.backup.ClawBackup;
 import clawx.backup.config.BackupConfig;
 import clawx.backup.integration.CloudUploader;
+import clawx.backup.integration.CustomNameplatesExporter;
 import clawx.backup.integration.NotificationManager;
 import clawx.backup.util.Message;
 import clawx.backup.util.SchedulerUtil;
@@ -46,7 +47,7 @@ public class BackupManager {
     private final AtomicLong processedFiles = new AtomicLong(0);
     private final AtomicLong totalBytes = new AtomicLong(0);
     private final AtomicLong processedBytes = new AtomicLong(0);
-    private String currentPhase = "";
+    private volatile String currentPhase = "";
 
     // 本次备份是否关闭了自动保存（供插件关闭时兜底恢复 save-on）
     private volatile boolean autoSaveWasDisabled = false;
@@ -91,8 +92,8 @@ public class BackupManager {
         // 检查是否被智能跳过
         if (config.isSmartBackup() && config.getSmartBackupThreshold() >= 0) {
             int online = plugin.getPlayerTracker().getOnlineCount();
-            if (online < config.getSmartBackupThreshold()) {
-                String reason = "智能跳过: 在线玩家 " + online + " < " + config.getSmartBackupThreshold();
+            if (online <= config.getSmartBackupThreshold()) {
+                String reason = "智能跳过: 在线玩家 " + online + " <= " + config.getSmartBackupThreshold();
                 Message.log("§e[备份] §6⏭ " + reason);
                 return CompletableFuture.completedFuture(new BackupResult(false, reason, null));
             }
@@ -131,14 +132,7 @@ public class BackupManager {
 
         final ThreadSafeSender safeSender = (sender != null) ? new ThreadSafeSender(sender, plugin) : null;
 
-        // 倒计时广播
-        if (config.isBroadcastCountdown() && config.getCountdownSeconds() > 0 && config.isNotifyPlayers()) {
-            int secs = config.getCountdownSeconds();
-            SchedulerUtil.runSync(plugin, () -> {
-                Bukkit.broadcastMessage(Message.prefix("§e⚠ 服务器将在 §6" + secs + " §e秒后开始备份..."));
-            });
-            // 倒数由 supplyAsync 循环处理
-        }
+        // 倒计时由 supplyAsync 内的递减循环统一广播（N..1），此处不重复发"将在 N 秒后"提示
 
         Message.log("§e[备份] §f开始备份: §b" + backupName);
         Message.log("§e[备份] §f触发方式: §7" + trigger);
@@ -320,6 +314,12 @@ public class BackupManager {
                 Message.log("§e[备份] §a✔ 备份前命令执行完成");
             }
 
+            // 3.7 CustomNameplates：H2 运行中被独占锁定，只能通过官方 API 导出玩家数据
+            if (config.isAutoHookPlugins() && CustomNameplatesExporter.isAvailable()) {
+                setPhase("导出 CustomNameplates 数据...");
+                CustomNameplatesExporter.export();
+            }
+
             // 4. 收集文件
             setPhase("统计待备份文件...");
             List<Path> allFiles = collectFiles();
@@ -369,6 +369,15 @@ public class BackupManager {
 
                     Path relativePath = serverRoot.relativize(file);
                     String entryName = relativePath.toString().replace('\\', '/');
+
+                    // 写入前预检：被其他进程独占锁定的文件直接跳过，避免截断残体写入 zip
+                    if (isFileLocked(file)) {
+                        skippedFiles.add(entryName);
+                        fileLockSkipped++;
+                        Message.log("§e[备份] §6⚠ 跳过被锁文件: §7" + entryName);
+                        processedFiles.incrementAndGet();
+                        continue;
+                    }
 
                     boolean entryOpen = false;
                     try {
@@ -499,8 +508,11 @@ public class BackupManager {
     private void restoreAutoSave(boolean wasDisabled) {
         if (!wasDisabled) return;
         runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "save-on"));
-        autoSaveWasDisabled = false;
-        Message.log("§e[备份] §a✔ 已恢复自动保存");
+        // 若插件正在关闭，runSyncAndWait 会跳过 save-on；此时保留标记交由 onDisable 兜底恢复
+        if (!plugin.isDisabling()) {
+            autoSaveWasDisabled = false;
+            Message.log("§e[备份] §a✔ 已恢复自动保存");
+        }
     }
 
     /** 删除文件（若存在） */
@@ -648,6 +660,19 @@ public class BackupManager {
         return false;
     }
 
+    /** 检测文件是否被其他进程锁定（写入前预检，避免截断残体进入 zip） */
+    private static boolean isFileLocked(Path file) {
+        try (java.nio.channels.FileChannel ch =
+                     java.nio.channels.FileChannel.open(file, java.nio.file.StandardOpenOption.READ)) {
+            java.nio.channels.FileLock lock = ch.tryLock(0, Long.MAX_VALUE, true);
+            if (lock == null) return true;
+            lock.release();
+            return false;
+        } catch (Exception e) {
+            return true; // 打不开或读取被拒 → 视为锁定
+        }
+    }
+
     // ===== 带重试和限速的文件复制 =====
     private boolean copyFileWithRetry(Path source, OutputStream dest,
                                        int throttleKBps, int chunkBytes) {
@@ -741,7 +766,15 @@ public class BackupManager {
         }
 
         Path backupDir = config.getResolvedBackupPath();
-        Path zipFile = backupDir.resolve(filename);
+        Path zipFile = backupDir.resolve(filename).normalize();
+        // 防路径穿越：解析后必须仍位于备份目录内
+        if (!zipFile.startsWith(backupDir.normalize())) {
+            if (sender != null)
+                SchedulerUtil.runSync(plugin, () ->
+                    sender.sendMessage(Message.prefix("§c非法备份文件名: §7" + filename))
+                );
+            return CompletableFuture.completedFuture(new BackupResult(false, "非法文件名", null));
+        }
         if (!Files.exists(zipFile)) {
             if (sender != null)
                 SchedulerUtil.runSync(plugin, () ->

@@ -42,14 +42,11 @@ public class BackupConfig {
     // ==== 存储设置 ====
     private String backupPath = "backups";
     private int compressionLevel = 6;
-    private boolean useTempDir = false;
-    private String tempPath = "plugins/ClawBackup/temp";
 
     // ==== 调度设置 ====
     private boolean scheduleEnabled = true;
     private long scheduleIntervalMinutes = 120;
     private boolean backupOnStart = true;
-    private boolean backupOnStop = false;
 
     // ==== 智能备份 ====
     private boolean smartBackup = true;
@@ -64,7 +61,6 @@ public class BackupConfig {
     private int fileLockRetryDelay = 1000;
     private boolean autoSaveDisable = true;
     private boolean saveAllBeforeBackup = true;
-    private int backupTimeoutMinutes = 30;
     private List<String> excludeFileTypes = Arrays.asList(".log", ".tmp", ".DS_Store", "thumbs.db");
 
     // ==== IO 限速 (防止备份卡服) ====
@@ -171,14 +167,11 @@ public class BackupConfig {
         // 存储 - 路径去首尾空格（防止 " D:\path " 导致解析问题）
         backupPath = config.getString("storage.backup-path", backupPath).trim();
         compressionLevel = clamp(config.getInt("storage.compression-level", compressionLevel), 0, 9);
-        useTempDir = config.getBoolean("storage.use-temp-dir", useTempDir);
-        tempPath = config.getString("storage.temp-path", tempPath).trim();
 
         // 调度
         scheduleEnabled = config.getBoolean("schedule.enabled", scheduleEnabled);
         scheduleIntervalMinutes = Math.max(1, config.getLong("schedule.interval-minutes", scheduleIntervalMinutes));
         backupOnStart = config.getBoolean("schedule.backup-on-start", backupOnStart);
-        backupOnStop = config.getBoolean("schedule.backup-on-stop", backupOnStop);
 
         // 智能
         smartBackup = config.getBoolean("smart.enabled", smartBackup);
@@ -193,7 +186,6 @@ public class BackupConfig {
         fileLockRetryDelay = Math.max(10, config.getInt("advanced.file-lock-retry-delay-ms", fileLockRetryDelay));
         autoSaveDisable = config.getBoolean("advanced.disable-autosave-during-backup", autoSaveDisable);
         saveAllBeforeBackup = config.getBoolean("advanced.save-all-before-backup", saveAllBeforeBackup);
-        backupTimeoutMinutes = Math.max(1, config.getInt("advanced.backup-timeout-minutes", backupTimeoutMinutes));
         excludeFileTypes = config.getStringList("advanced.exclude-file-types");
 
         // IO 限速
@@ -254,7 +246,7 @@ public class BackupConfig {
     }
 
     public void reload() {
-        config = YamlConfiguration.loadConfiguration(configFile);
+        // 直接走 load()：内部自带 try/catch 优雅降级，且只解析一次文件
         load();
     }
 
@@ -281,13 +273,10 @@ public class BackupConfig {
 
     public String getBackupPath() { return backupPath; }
     public int getCompressionLevel() { return compressionLevel; }
-    public boolean isUseTempDir() { return useTempDir; }
-    public String getTempPath() { return tempPath; }
 
     public boolean isScheduleEnabled() { return scheduleEnabled; }
     public long getScheduleIntervalMinutes() { return scheduleIntervalMinutes; }
     public boolean isBackupOnStart() { return backupOnStart; }
-    public boolean isBackupOnStop() { return backupOnStop; }
 
     public boolean isSmartBackup() { return smartBackup; }
     public int getSmartBackupThreshold() { return smartBackupThreshold; }
@@ -299,7 +288,6 @@ public class BackupConfig {
     public int getFileLockRetryDelay() { return fileLockRetryDelay; }
     public boolean isAutoSaveDisable() { return autoSaveDisable; }
     public boolean isSaveAllBeforeBackup() { return saveAllBeforeBackup; }
-    public int getBackupTimeoutMinutes() { return backupTimeoutMinutes; }
     public List<String> getExcludeFileTypes() { return excludeFileTypes; }
 
     public int getIoThrottleKBps() { return ioThrottleKBps; }

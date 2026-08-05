@@ -51,6 +51,14 @@ if (Test-Path $LibsDir) {
     $AllJars += @(Get-ChildItem -Path $LibsDir -Filter *.jar | ForEach-Object { $_.FullName })
 }
 $Cp = $AllJars -join ';'
+# Optional compile-only dependency: CustomNameplates API (compile-time only, NOT bundled into the jar)
+$CustomNameplatesJar = "C:\Users\Administrator\Downloads\MSLX-Daemon_v1.5.5.1_win-x64\DaemonData\Servers\1\plugins\CustomNameplates-Bukkit-3.0.42.jar"
+if (Test-Path $CustomNameplatesJar) {
+    $Cp = "$Cp;$CustomNameplatesJar"
+    Write-Host "[deps] CustomNameplates API jar found (compile-only, not bundled)"
+} else {
+    Write-Host "[deps] WARNING: CustomNameplates API jar not found - CustomNameplates integration will NOT compile"
+}
 if (Test-Path $ClassesDir) { Remove-Item -Recurse -Force $ClassesDir }
 New-Item -ItemType Directory -Force -Path $ClassesDir | Out-Null
 $Files = @(Get-ChildItem -Path $SrcDir -Recurse -Filter *.java | ForEach-Object { $_.FullName })

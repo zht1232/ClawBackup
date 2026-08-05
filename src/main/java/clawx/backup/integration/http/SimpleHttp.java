@@ -41,6 +41,35 @@ public final class SimpleHttp {
         return send("POST", url, data, contentType, headers);
     }
 
+    /** 流式上传（避免把大文件整个读入内存），contentLength 需为实际字节数 */
+    public static Response postStream(String url, long contentLength, InputStream in,
+                                      String contentType, Map<String, String> headers) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS * 4);
+            if (contentType != null) conn.setRequestProperty("Content-Type", contentType);
+            if (headers != null) {
+                for (Map.Entry<String, String> e : headers.entrySet()) {
+                    conn.setRequestProperty(e.getKey(), e.getValue());
+                }
+            }
+            conn.setFixedLengthStreamingMode(contentLength);
+            conn.setDoOutput(true);
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) os.write(buf, 0, n);
+            }
+            int code = conn.getResponseCode();
+            InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            return new Response(code, readAll(is));
+        } finally {
+            conn.disconnect();
+        }
+    }
+
     public static Response get(String url, Map<String, String> headers) throws IOException {
         return send("GET", url, null, null, headers);
     }

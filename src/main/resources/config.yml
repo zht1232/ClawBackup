@@ -1,5 +1,5 @@
 # ===================================================
-#          🐾 ClawBackup v1.5.4 - 配置文件
+#          🐾 ClawBackup v1.5.6 - 配置文件
 #   专业 Minecraft 服务器备份插件 · 开源社区版
 #   兼容 Paper / Purpur / Folia  |  MC 1.16 ~ 26.2
 # ===================================================
@@ -56,11 +56,6 @@ storage:
   # 注意: 等级越高越慢但文件越小
   compression-level: 6
 
-  # 是否使用临时目录先构建再移动（可加快最终写入速度）
-  use-temp-dir: false
-
-  # 临时目录路径（相对路径，相对于服务器根目录）
-  temp-path: 'plugins/ClawBackup/temp'
 
 # ---------- 调度设置 ----------
 schedule:
@@ -72,9 +67,6 @@ schedule:
 
   # 服务器启动时是否延迟 10 秒后立即备份
   backup-on-start: true
-
-  # 服务器关闭时是否备份
-  backup-on-stop: false
 
 # ---------- 智能备份 ----------
 smart:
@@ -108,9 +100,6 @@ advanced:
 
   # 备份前是否执行 save-all（确保数据落盘）
   save-all-before-backup: true
-
-  # 单个备份任务超时时间（分钟）
-  backup-timeout-minutes: 30
 
   # 排除的文件类型（不备份这些后缀/文件名的文件）
   # 默认排除日志和临时文件，减少备份体积
@@ -181,9 +170,9 @@ restore:
   post-restore-commands: []
 
   # 是否自动检测插件并挂钩
-  # 启用后，备份前自动执行导出命令，回档后自动执行导入命令
+  # 启用后，备份前自动执行导出命令/API，回档后自动执行导入命令/API
   # 如果手动配置了 pre-backup-commands/post-restore-commands，则不会重复执行
-  # 目前支持: LuckPerms（QuickShop 无导出命令，如需备份商店数据请将 QuickShop 迁移到 MySQL）
+  # 目前支持: LuckPerms、QuickShop（导出）、CustomNameplates（API 导出）
   auto-hook-plugins: true
 
   # 回档后是否自动恢复 QuickShop 商店数据（自动执行 /quickshop recovery <export zip>）

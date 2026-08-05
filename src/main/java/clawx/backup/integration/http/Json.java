@@ -51,7 +51,22 @@ public final class Json {
         return sb.append(']').toString();
     }
 
+    /**
+     * 包装一段已是合法 JSON 的字符串，使其在 obj/arr 中原样注入（不做字符串转义）。
+     * 用于嵌套对象/数组，例如: Json.obj("content", Json.raw(Json.obj("text", "hi")))。
+     */
+    public static Object raw(String json) {
+        return new Raw(json);
+    }
+
+    /** 内部包装：标记该字符串应原样输出，不转义 */
+    private static final class Raw {
+        final String json;
+        Raw(String json) { this.json = json; }
+    }
+
     private static String value(Object v) {
+        if (v instanceof Raw) return ((Raw) v).json;
         if (v == null) return "null";
         if (v instanceof Number || v instanceof Boolean) return String.valueOf(v);
         return '"' + escape(v.toString()) + '"';

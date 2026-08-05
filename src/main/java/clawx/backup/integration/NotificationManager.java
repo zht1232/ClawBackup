@@ -65,7 +65,7 @@ public final class NotificationManager {
 
     // ===== 飞书 =====
     private static void sendFeishu(String webhook, String text) throws IOException {
-        String payload = Json.obj("msg_type", "text", "content", Json.obj("text", text));
+        String payload = Json.obj("msg_type", "text", "content", Json.raw(Json.obj("text", text)));
         Response r = SimpleHttp.postJson(webhook, payload, null);
         if (!r.isOk()) throw new IOException("HTTP " + r.code + ": " + r.body);
     }
@@ -82,7 +82,7 @@ public final class NotificationManager {
             String sign = URLEncoder.encode(Base64.getEncoder().encodeToString(signData), "UTF-8");
             url = webhook + (webhook.contains("?") ? "&" : "?") + "timestamp=" + ts + "&sign=" + sign;
         }
-        String payload = Json.obj("msgtype", "text", "text", Json.obj("content", text));
+        String payload = Json.obj("msgtype", "text", "text", Json.raw(Json.obj("content", text)));
         Response r = SimpleHttp.postJson(url, payload, null);
         if (!r.isOk()) throw new IOException("HTTP " + r.code + ": " + r.body);
     }

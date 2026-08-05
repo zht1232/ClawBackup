@@ -5,7 +5,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 > 支持 **Paper / Purpur / Folia** · MC **1.16 ~ 26.2** · Java 8+
-> 当前版本 **1.4.1**
+> 当前版本 **1.5.6**
 
 ---
 
@@ -22,7 +22,7 @@
 - ⚡ **热重载**：无需重启服务器
 - ☁️ **云备份上传**：备份完成后自动上传（GitHub Release / 百度网盘）
 - 🔔 **告警通知**：备份开始/成功/失败自动通知（邮件 / 飞书 / 钉钉）
-- 🔌 **插件钩子**：自动检测 LuckPerms（备份前导出、回档后导入）
+- 🔌 **插件钩子**：自动检测 LuckPerms / QuickShop / CustomNameplates（备份前导出、回档后导入）
 - 🗄️ **数据库文件识别**：自动识别被锁的 H2/SQLite 数据库文件，跳过并列出清单，避免备份到损坏的库
 
 ## 支持平台
@@ -61,7 +61,7 @@
 
 - `backup`：备份目标（插件/世界、自动发现、排除项、备份前命令）
 - `storage`：备份路径、压缩等级
-- `schedule`：定时备份间隔、启动/关闭备份
+- `schedule`：定时备份间隔、启动备份
 - `smart`：智能备份阈值
 - `retention`：最大备份数、最小磁盘空间
 - `advanced`：IO 限速、TPS 保护、倒计时等
@@ -113,7 +113,7 @@ notify:
 ## ⚠️ 注意点
 
 1. **数据库文件热备份限制**：H2/SQLite 数据库（`.mv.db` / `.db` / `.sqlite`）在服务器运行时会被占用，无法热复制（复制运行中的 H2 库也不安全）。ClawBackup 会跳过它们并**在备份日志列出被锁文件清单**（1.4.1+）。处理建议：
-   - LuckPerms / QuickShop 已自动导出（数据有快照）
+   - LuckPerms / QuickShop / CustomNameplates 已自动导出（数据有快照）
    - 其他插件可在 `backup.pre-backup-commands` 加导出命令，或迁移 MySQL
 2. **凭据安全**：GitHub token、SMTP 授权码等**只存在你服务器上的 `config.yml`**，不会被提交到仓库（`libs/` 等已 gitignore）
 3. **邮件依赖**：构建时会自动下载 JavaMail 并打进 jar（构建脚本需联网一次）
@@ -139,6 +139,8 @@ build.bat
 
 ## 更新历史
 
+- **1.5.6**：新增 CustomNameplates 数据自动导出/回档导入（通过官方 API：备份前导出玩家名牌数据、回档后写回 H2）
+- **1.5.5**：全面检修 — 修复飞书/钉钉通知 JSON 结构错误、GitHub 上传改流式（大备份不再占满内存）、修复插件关闭时自动保存可能不恢复、被锁文件写入前预检避免截断残体进 zip、统一智能备份判定边界、移除未实现的配置项（backup-on-stop / use-temp-dir / backup-timeout-minutes）、修复 reload、异步日志线程安全、回档文件名路径穿越校验、倒计时广播去重、GitHub tag 加毫秒防冲突
 - **1.5.4**：备份前清理同时删除遗留的 recovery.zip，避免重复体积
 - **1.5.3**：QuickShop 自动恢复改为复制为 recovery.zip 后执行 quickshop recovery recovery.zip
 - **1.5.2**：备份前自动删除 LuckPerms / QuickShop 旧导出文件，修复导出文件已存在导致打包旧数据

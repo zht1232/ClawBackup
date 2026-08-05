@@ -179,7 +179,6 @@ public class BackupCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(prefix("§7定时任务: §f" + (config.isScheduleEnabled() ? "§a✓ 已启用" : "§c✗ 已禁用")));
         sender.sendMessage(prefix("§7备份间隔: §f" + config.getScheduleIntervalMinutes() + " 分钟"));
         sender.sendMessage(prefix("§7启动备份: §f" + (config.isBackupOnStart() ? "§a是" : "§c否")));
-        sender.sendMessage(prefix("§7关闭备份: §f" + (config.isBackupOnStop() ? "§a是" : "§c否")));
         sender.sendMessage(prefix(""));
         sender.sendMessage(prefix("§6§l========= 智能策略 ========="));
         sender.sendMessage(prefix("§7智能跳过: §f" + (config.isSmartBackup() ? "§a✓ 已启用" : "§c✗ 已禁用")));
@@ -232,9 +231,8 @@ public class BackupCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(prefix("§c你没有权限执行此操作。"));
             return true;
         }
-        plugin.getBackupConfig().reload();
-        plugin.getBackupScheduler().restart();
-        sender.sendMessage(prefix("§a✔ 配置文件已重新加载，定时器已刷新。"));
+        // 走统一的 hotReload：重载配置 + 重建定时器
+        plugin.hotReload();
         return true;
     }
 
