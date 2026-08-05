@@ -226,16 +226,37 @@ public class ClawBackup extends JavaPlugin {
                     }
                 }
                 // QuickShop：检测导出 zip（quickshop export 生成 export-<时间戳>.zip）。
-                // 恢复命令 /quickshop recovery 会覆盖/删除现有商店、风险较高，故不自动执行，仅提示管理员。
+                // 实测 recovery 会查找固定的 recovery.zip；故取最新导出复制为 recovery.zip 再执行恢复。
+                // recovery 会覆盖现有商店，是否自动执行由 restore.auto-restore-quickshop 控制。
                 java.nio.file.Path qsDir = java.nio.file.Paths.get("plugins/QuickShop-Hikari");
                 if (java.nio.file.Files.isDirectory(qsDir)) {
+                    java.nio.file.Path newestZip = null;
+                    long newestTime = -1;
                     try (java.nio.file.DirectoryStream<java.nio.file.Path> ds =
                                  java.nio.file.Files.newDirectoryStream(qsDir, "export-*.zip")) {
-                        if (ds.iterator().hasNext()) {
-                            Message.log("§e[ClawBackup] §6⚠ 检测到 QuickShop 导出备份 (export-*.zip)。");
-                            Message.log("§e[ClawBackup] §6   如需恢复商店，请手动执行 §e/quickshop recovery §6（注意：会覆盖现有商店，请先做好备份！）");
+                        for (java.nio.file.Path p : ds) {
+                            try {
+                                long t = java.nio.file.Files.getLastModifiedTime(p).toMillis();
+                                if (t > newestTime) { newestTime = t; newestZip = p; }
+                            } catch (Exception ignored) {}
                         }
                     } catch (Exception ignored) {}
+                    if (newestZip != null) {
+                        Message.log("§e[ClawBackup] §a✔ 检测到 QuickShop 导出备份: §f" + newestZip.getFileName());
+                        if (config.isAutoRestoreQuickshop()) {
+                            try {
+                                java.nio.file.Path recZip = qsDir.resolve("recovery.zip");
+                                java.nio.file.Files.copy(newestZip, recZip,
+                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                postCommands.add("quickshop recovery recovery.zip");
+                                Message.log("§e[ClawBackup] §7已复制为 recovery.zip，自动执行 QuickShop 恢复...");
+                            } catch (Exception e) {
+                                Message.log("§c[ClawBackup] §4复制 recovery.zip 失败: " + e.getMessage());
+                            }
+                        } else {
+                            Message.log("§e[ClawBackup] §6   如需恢复商店，请手动执行 §e/quickshop recovery §6<export zip>");
+                        }
+                    }
                 }
             }
             if (!postCommands.isEmpty()) {

@@ -289,6 +289,22 @@ public class BackupManager {
             }
 
             if (!preCommands.isEmpty()) {
+                // 清理会自动导出的旧文件：
+                // - LuckPerms export 在目标文件已存在时会报错拒绝覆盖（backup.json.gz already exists），需先删除旧导出
+                // - QuickShop export 生成新时间戳 zip，旧 zip 会不断积累，需先清理只保留当次最新
+                for (String cmd : preCommands) {
+                    String lowerCmd = cmd.toLowerCase();
+                    if (lowerCmd.startsWith("lp export") || lowerCmd.startsWith("luckperms export")) {
+                        deleteIfExists(java.nio.file.Paths.get("plugins/LuckPerms", "backup.json.gz"));
+                        deleteIfExists(java.nio.file.Paths.get("plugins/LuckPerms", "backup.json"));
+                        deleteIfExists(java.nio.file.Paths.get("plugins/LuckPerms", "backup.yml"));
+                    }
+                    if (lowerCmd.startsWith("qs export") || lowerCmd.startsWith("quickshop export")) {
+                        deleteMatching(java.nio.file.Paths.get("plugins/QuickShop-Hikari"), "export-*.zip");
+                        // 顺带删除回档遗留的 recovery.zip（临时副本，避免被打包进下次备份造成重复体积）
+                        deleteIfExists(java.nio.file.Paths.get("plugins/QuickShop-Hikari", "recovery.zip"));
+                    }
+                }
                 setPhase("执行备份前命令...");
                 Message.log("§e[备份] §7执行备份前命令...");
                 for (String cmd : preCommands) {
@@ -485,6 +501,21 @@ public class BackupManager {
         runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "save-on"));
         autoSaveWasDisabled = false;
         Message.log("§e[备份] §a✔ 已恢复自动保存");
+    }
+
+    /** 删除文件（若存在） */
+    private static void deleteIfExists(java.nio.file.Path p) {
+        try { java.nio.file.Files.deleteIfExists(p); } catch (Exception ignored) {}
+    }
+
+    /** 删除目录下匹配 glob 的文件（如 export-*.zip） */
+    private static void deleteMatching(java.nio.file.Path dir, String glob) {
+        if (!java.nio.file.Files.isDirectory(dir)) return;
+        try (java.nio.file.DirectoryStream<java.nio.file.Path> ds = java.nio.file.Files.newDirectoryStream(dir, glob)) {
+            for (java.nio.file.Path p : ds) {
+                try { java.nio.file.Files.deleteIfExists(p); } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
     }
 
     // ===== 文件收集（含自动发现多世界、排除规则）=====

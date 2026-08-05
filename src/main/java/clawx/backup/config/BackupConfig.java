@@ -90,6 +90,7 @@ public class BackupConfig {
     private List<String> restoreExcludedPlugins = Collections.emptyList();
     private List<String> postRestoreCommands = Collections.emptyList();
     private boolean autoHookPlugins = true;
+    private boolean autoRestoreQuickshop = true;
 
     // ==== 云备份上传 ====
     private boolean cloudBackupEnabled = false;
@@ -218,6 +219,7 @@ public class BackupConfig {
         restoreExcludedPlugins = config.getStringList("restore.excluded-plugins");
         postRestoreCommands = config.getStringList("restore.post-restore-commands");
         autoHookPlugins = config.getBoolean("restore.auto-hook-plugins", autoHookPlugins);
+        autoRestoreQuickshop = config.getBoolean("restore.auto-restore-quickshop", autoRestoreQuickshop);
 
         // 云备份上传
         cloudBackupEnabled = config.getBoolean("cloud-backup.enabled", cloudBackupEnabled);
@@ -318,6 +320,7 @@ public class BackupConfig {
     public List<String> getRestoreExcludedPlugins() { return restoreExcludedPlugins; }
     public List<String> getPostRestoreCommands() { return postRestoreCommands; }
     public boolean isAutoHookPlugins() { return autoHookPlugins; }
+    public boolean isAutoRestoreQuickshop() { return autoRestoreQuickshop; }
 
     // ===== 云备份上传 =====
     public boolean isCloudBackupEnabled() { return cloudBackupEnabled; }

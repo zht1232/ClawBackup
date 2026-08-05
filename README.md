@@ -139,6 +139,19 @@ build.bat
 
 ## 更新历史
 
+- **1.5.4**：备份前清理同时删除遗留的 recovery.zip，避免重复体积
+- **1.5.3**：QuickShop 自动恢复改为复制为 recovery.zip 后执行 quickshop recovery recovery.zip
+- **1.5.2**：备份前自动删除 LuckPerms / QuickShop 旧导出文件，修复导出文件已存在导致打包旧数据
+- **1.5.1**：QuickShop 自动恢复开关（restore.auto-restore-quickshop）
+- **1.5.0**：LuckPerms / QuickShop 导出文件自动恢复支持
+- **1.4.9**：恢复 QuickShop 导出钩子并等待导出完成
+- **1.4.8**：修复 QuickShop 钩子编译错误
+- **1.4.7**：备份检测兼容 backup.json.gz / json / yml
+- **1.4.6**：LuckPerms 导入钩子
+- **1.4.5**：配置模板改用单引号避免 Windows 路径转义问题
+- **1.4.4**：配置文件解析失败时输出明确错误提示
+- **1.4.3**：修复 Paper 误判、配置文件不再被覆盖为 .old
+- **1.4.2**：修复 Spigot 声明
 - **1.4.1**：备份日志列出所有被锁数据库文件清单
 - **1.4.0**：新增云备份上传（GitHub/百度网盘）、告警通知（邮件/飞书/钉钉）
 - **1.3.0**：Folia 适配（区域调度 API）、团队署名 CrystalKingdom

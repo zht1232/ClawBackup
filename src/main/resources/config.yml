@@ -1,5 +1,5 @@
 # ===================================================
-#          🐾 ClawBackup v1.5.0 - 配置文件
+#          🐾 ClawBackup v1.5.4 - 配置文件
 #   专业 Minecraft 服务器备份插件 · 开源社区版
 #   兼容 Paper / Purpur / Folia  |  MC 1.16 ~ 26.2
 # ===================================================
@@ -185,6 +185,10 @@ restore:
   # 如果手动配置了 pre-backup-commands/post-restore-commands，则不会重复执行
   # 目前支持: LuckPerms（QuickShop 无导出命令，如需备份商店数据请将 QuickShop 迁移到 MySQL）
   auto-hook-plugins: true
+
+  # 回档后是否自动恢复 QuickShop 商店数据（自动执行 /quickshop recovery <export zip>）
+  # ⚠️ 注意: QuickShop 的 recovery 会覆盖/删除现有商店，启用前请确认该命令在服务器上的正确用法
+  auto-restore-quickshop: true
 
 # ---------- 云备份上传 ----------
 cloud-backup:
