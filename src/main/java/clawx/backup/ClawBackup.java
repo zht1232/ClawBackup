@@ -303,8 +303,24 @@ public class ClawBackup extends JavaPlugin {
         }
     }
 
-    /** 检测当前服务器核心类型 */
+    /** 检测当前服务器核心类型（优先用品牌名与 Paper API 反射，避免 getVersion() 不含品牌导致误判） */
     public static String detectServerType() {
+        // 1. Bukkit.getName()：Paper / Purpur / Folia 会返回品牌名
+        try {
+            String name = Bukkit.getName();
+            if (name != null && !name.isEmpty()) {
+                String lower = name.toLowerCase();
+                if (lower.contains("folia")) return "Folia";
+                if (lower.contains("purpur")) return "Purpur";
+                if (lower.contains("paper")) return "Paper";
+            }
+        } catch (Exception ignored) {}
+        // 2. 反射检测 Paper 区域调度 API（Paper 1.20.4+ / Folia 独有，纯 Spigot 没有）
+        try {
+            Class.forName("io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler");
+            return "Paper";
+        } catch (Throwable ignored) {}
+        // 3. 回退到版本字符串
         try {
             String version = Bukkit.getVersion().toLowerCase();
             if (version.contains("purpur")) return "Purpur";

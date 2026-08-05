@@ -126,89 +126,15 @@ public class BackupConfig {
         load();
     }
 
-    /** 旧配置自动迁移：备份旧文件 → 写入新默认 → 回迁旧值 */
+    /**
+     * 配置文件处理：仅当 config.yml 不存在时生成默认文件。
+     * 若用户已有 config.yml，绝不覆盖、不迁移（新增字段由 load() 的默认值兜底），
+     * 避免旧版启发式迁移反复把用户配置备份为 config.old.yml 且回迁不完整的问题。
+     */
     private void handleMigration() {
         if (!configFile.exists()) {
             plugin.getDataFolder().mkdirs();
             plugin.saveResource("config.yml", false);
-            return;
-        }
-
-        // 检查是否旧版本配置（通过检测关键新字段和废弃字段判断）
-        YamlConfiguration oldConfig = YamlConfiguration.loadConfiguration(configFile);
-        boolean isOldVersion = oldConfig.contains("retention.keep-days")      // 1.0.x 废弃字段
-                            || !oldConfig.contains("backup.world-auto-discover")  // 缺少新字段
-                            || !oldConfig.contains("advanced.io-throttle-kbps")
-                            || !oldConfig.contains("advanced.tps-protection-enabled");
-
-        if (!isOldVersion) return;  // 已经是新版本配置，无需迁移
-
-        plugin.getLogger().info("[配置迁移] 检测到旧版本配置文件，正在自动迁移...");
-
-        try {
-            // 1. 备份旧文件
-            File backup = new File(configFile.getParentFile(), "config.old.yml");
-            // 删除上一次的旧备份
-            Files.deleteIfExists(backup.toPath());
-            Files.copy(configFile.toPath(), backup.toPath());
-            plugin.getLogger().info("[配置迁移] 旧配置已备份为 config.old.yml");
-
-            // 2. 写入新的默认配置
-            plugin.saveResource("config.yml", true);
-            plugin.getLogger().info("[配置迁移] 新默认配置已写入");
-
-            // 3. 重新加载为 YamlConfiguration 以合并旧值
-            YamlConfiguration newConfig = YamlConfiguration.loadConfiguration(configFile);
-
-            // 3a. 回迁旧配置中仍存在的值
-            transferIfExists(oldConfig, newConfig, "backup.plugins");
-            transferIfExists(oldConfig, newConfig, "backup.worlds");
-            transferIfExists(oldConfig, newConfig, "backup.world-list");
-            transferIfExists(oldConfig, newConfig, "backup.excluded-plugins");
-            transferIfExists(oldConfig, newConfig, "backup.excluded-worlds");
-
-            transferIfExists(oldConfig, newConfig, "storage.backup-path");
-            transferIfExists(oldConfig, newConfig, "storage.compression-level");
-            transferIfExists(oldConfig, newConfig, "storage.use-temp-dir");
-            transferIfExists(oldConfig, newConfig, "storage.temp-path");
-
-            transferIfExists(oldConfig, newConfig, "schedule.enabled");
-            transferIfExists(oldConfig, newConfig, "schedule.interval-minutes");
-            transferIfExists(oldConfig, newConfig, "schedule.backup-on-start");
-            transferIfExists(oldConfig, newConfig, "schedule.backup-on-stop");
-
-            transferIfExists(oldConfig, newConfig, "smart.enabled");
-            transferIfExists(oldConfig, newConfig, "smart.min-players");
-
-            transferIfExists(oldConfig, newConfig, "retention.max-backups");
-            transferIfExists(oldConfig, newConfig, "retention.min-free-space-mb");
-
-            transferIfExists(oldConfig, newConfig, "advanced.file-lock-retries");
-            transferIfExists(oldConfig, newConfig, "advanced.file-lock-retry-delay-ms");
-            transferIfExists(oldConfig, newConfig, "advanced.disable-autosave-during-backup");
-            transferIfExists(oldConfig, newConfig, "advanced.save-all-before-backup");
-            transferIfExists(oldConfig, newConfig, "advanced.backup-timeout-minutes");
-            transferIfExists(oldConfig, newConfig, "advanced.exclude-file-types");
-
-            transferIfExists(oldConfig, newConfig, "notification.notify-players");
-            transferIfExists(oldConfig, newConfig, "notification.show-progress");
-            transferIfExists(oldConfig, newConfig, "notification.progress-interval-ticks");
-
-            // 清理废弃字段（旧版 keep-days 等）
-            String[] deprecatedKeys = {"retention.keep-days"};
-            for (String key : deprecatedKeys) {
-                if (newConfig.contains(key)) {
-                    newConfig.set(key, null);
-                    plugin.getLogger().info("[配置迁移] 已移除废弃字段: " + key);
-                }
-            }
-
-            // 保存合并后的配置
-            newConfig.save(configFile);
-            plugin.getLogger().info("[配置迁移] ✅ 配置迁移完成");
-        } catch (Exception e) {
-            plugin.getLogger().severe("[配置迁移] 迁移失败: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 

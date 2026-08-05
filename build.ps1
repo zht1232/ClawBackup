@@ -43,7 +43,7 @@ $JarName = "ClawBackup-$Version.jar"
 
 Write-Host "==== ClawBackup build v$Version ===="
 
-# 1. Compile
+# 1. Compile (use javac @argfile to avoid Windows command-line length limits)
 Write-Host "[1/4] Compiling (Java 8 bytecode)..."
 if (-not (Test-Path $LibrariesDir)) { throw "Libraries dir not found: $LibrariesDir" }
 $AllJars = @(Get-ChildItem -Path $LibrariesDir -Recurse -Filter *.jar | ForEach-Object { $_.FullName })
@@ -55,7 +55,10 @@ if (Test-Path $ClassesDir) { Remove-Item -Recurse -Force $ClassesDir }
 New-Item -ItemType Directory -Force -Path $ClassesDir | Out-Null
 $Files = @(Get-ChildItem -Path $SrcDir -Recurse -Filter *.java | ForEach-Object { $_.FullName })
 if ($Files.Count -eq 0) { throw "No .java files found under src/main/java" }
-javac --release 8 -cp $Cp -d $ClassesDir -encoding UTF-8 $Files
+$ArgFile = Join-Path $BuildDir "javac.args"
+$ArgLines = @("--release", "8", "-cp", $Cp, "-d", $ClassesDir, "-encoding", "UTF-8") + @($Files)
+$ArgLines | Out-File -FilePath $ArgFile -Encoding ascii
+javac "@$ArgFile"
 if ($LASTEXITCODE -ne 0) { throw "Compile failed (exit=$LASTEXITCODE)" }
 
 # 2. Copy resources (plugin.yml / config.yml etc.)
