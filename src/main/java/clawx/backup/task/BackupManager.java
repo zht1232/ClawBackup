@@ -4,6 +4,8 @@ import clawx.backup.ClawBackup;
 import clawx.backup.config.BackupConfig;
 import clawx.backup.integration.CloudUploader;
 import clawx.backup.integration.CustomNameplatesExporter;
+import clawx.backup.integration.H2BackupExporter;
+import clawx.backup.integration.MineStockExporter;
 import clawx.backup.integration.NotificationManager;
 import clawx.backup.util.Message;
 import clawx.backup.util.SchedulerUtil;
@@ -329,6 +331,18 @@ public class BackupManager {
             if (config.isAutoHookPlugins() && CustomNameplatesExporter.isAvailable()) {
                 setPhase("导出 CustomNameplates 数据...");
                 CustomNameplatesExporter.export();
+            }
+
+            // 3.8 MineStock：H2 带 AUTO_SERVER=TRUE，运行时 JDBC 直连导出持仓数据
+            if (config.isAutoHookPlugins() && MineStockExporter.isAvailable()) {
+                setPhase("导出 MineStock 数据...");
+                MineStockExporter.export();
+            }
+
+            // 3.9 通用 H2 兜底：尝试导出所有被锁的 H2 库（能连上的自动导出，失败跳过）
+            if (config.isH2BackupEnabled()) {
+                setPhase("H2 兜底导出...");
+                H2BackupExporter.export(config);
             }
 
             // 4. 收集文件

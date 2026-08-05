@@ -33,6 +33,13 @@ if (-not (Test-Path $ActJar)) {
     Write-Host "[deps] Downloading activation-1.1.1.jar ..."
     Invoke-WebRequest -Uri "https://repo1.maven.org/maven2/javax/activation/activation/1.1.1/activation-1.1.1.jar" -OutFile $ActJar -UseBasicParsing
 }
+# H2 driver (MineStock integration: runtime JDBC access to its AUTO_SERVER=TRUE database)
+$H2Jar = Join-Path $LibsDir "h2-2.2.224.jar"
+if (-not (Test-Path $H2Jar)) {
+    Write-Host "[deps] Downloading h2-2.2.224.jar ..."
+    New-Item -ItemType Directory -Force -Path $LibsDir | Out-Null
+    Invoke-WebRequest -Uri "https://repo1.maven.org/maven2/com/h2database/h2/2.2.224/h2-2.2.224.jar" -OutFile $H2Jar -UseBasicParsing
+}
 
 # ===== Read version from plugin.yml =====
 $PluginYml = Join-Path $ResDir "plugin.yml"

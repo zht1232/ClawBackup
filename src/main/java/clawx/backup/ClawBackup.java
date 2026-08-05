@@ -3,6 +3,8 @@ package clawx.backup;
 import clawx.backup.command.BackupCommand;
 import clawx.backup.config.BackupConfig;
 import clawx.backup.integration.CustomNameplatesExporter;
+import clawx.backup.integration.H2BackupExporter;
+import clawx.backup.integration.MineStockExporter;
 import clawx.backup.task.BackupManager;
 import clawx.backup.task.BackupScheduler;
 import clawx.backup.task.PlayerTracker;
@@ -332,6 +334,22 @@ public class ClawBackup extends JavaPlugin {
             SchedulerUtil.runAsync(this, () -> {
                 try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
                 CustomNameplatesExporter.restore();
+            });
+        }
+
+        // 回档后 MineStock 数据导入（延迟异步执行，等待 MineStock 就绪后写回 H2）
+        if (config.isAutoHookPlugins() && MineStockExporter.isAvailable()) {
+            SchedulerUtil.runAsync(this, () -> {
+                try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                MineStockExporter.restore();
+            });
+        }
+
+        // 回档后通用 H2 兜底恢复（延迟异步执行，扫描 h2backup-*.sql 并 RUNSCRIPT 重建）
+        if (config.isH2BackupEnabled()) {
+            SchedulerUtil.runAsync(this, () -> {
+                try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                H2BackupExporter.restore();
             });
         }
 

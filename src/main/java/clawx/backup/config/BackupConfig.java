@@ -88,6 +88,10 @@ public class BackupConfig {
     private boolean autoHookPlugins = true;
     private boolean autoRestoreQuickshop = true;
 
+    // ==== 通用 H2 数据库兜底备份 ====
+    private boolean h2BackupEnabled = true;
+    private List<String> h2BackupExcluded = Collections.emptyList();
+
     // ==== 云备份上传 ====
     private boolean cloudBackupEnabled = false;
     private boolean githubEnabled = false;
@@ -213,6 +217,10 @@ public class BackupConfig {
         autoHookPlugins = config.getBoolean("restore.auto-hook-plugins", autoHookPlugins);
         autoRestoreQuickshop = config.getBoolean("restore.auto-restore-quickshop", autoRestoreQuickshop);
 
+        // 通用 H2 兜底备份
+        h2BackupEnabled = config.getBoolean("h2-backup.enabled", h2BackupEnabled);
+        h2BackupExcluded = config.getStringList("h2-backup.excluded");
+
         // 云备份上传
         cloudBackupEnabled = config.getBoolean("cloud-backup.enabled", cloudBackupEnabled);
         githubEnabled = config.getBoolean("cloud-backup.github.enabled", githubEnabled);
@@ -309,6 +317,10 @@ public class BackupConfig {
     public List<String> getPostRestoreCommands() { return postRestoreCommands; }
     public boolean isAutoHookPlugins() { return autoHookPlugins; }
     public boolean isAutoRestoreQuickshop() { return autoRestoreQuickshop; }
+
+    // ===== 通用 H2 兜底备份 =====
+    public boolean isH2BackupEnabled() { return h2BackupEnabled; }
+    public List<String> getH2BackupExcluded() { return h2BackupExcluded; }
 
     // ===== 云备份上传 =====
     public boolean isCloudBackupEnabled() { return cloudBackupEnabled; }

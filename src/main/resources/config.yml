@@ -1,5 +1,5 @@
 # ===================================================
-#          🐾 ClawBackup v1.5.9 - 配置文件
+#          🐾 ClawBackup v1.6.1 - 配置文件
 #   专业 Minecraft 服务器备份插件 · 开源社区版
 #   兼容 Paper / Purpur / Folia  |  MC 1.16 ~ 26.2
 # ===================================================
@@ -172,12 +172,23 @@ restore:
   # 是否自动检测插件并挂钩
   # 启用后，备份前自动执行导出命令/API，回档后自动执行导入命令/API
   # 如果手动配置了 pre-backup-commands/post-restore-commands，则不会重复执行
-  # 目前支持: LuckPerms、QuickShop（导出）、CustomNameplates（API 导出）
+  # 目前支持: LuckPerms、QuickShop（导出）、CustomNameplates（API 导出）、MineStock（H2 直连导出）
   auto-hook-plugins: true
 
   # 回档后是否自动恢复 QuickShop 商店数据（自动执行 /quickshop recovery <export zip>）
   # ⚠️ 注意: QuickShop 的 recovery 会覆盖/删除现有商店，启用前请确认该命令在服务器上的正确用法
   auto-restore-quickshop: true
+
+# ---------- 通用 H2 数据库兜底备份 ----------
+# 自动尝试连接运行时被锁的 H2 数据库（能连上的自动导出整个库随备份打包，回档后自动恢复）
+# 作为各插件专用钩子（LuckPerms/QuickShop/CustomNameplates/MineStock）之外的通用兜底
+h2-backup:
+  # 是否启用
+  enabled: true
+  # 排除的数据库文件（相对路径或文件名包含匹配）
+  # 示例:
+  #   - plugins/SomePlugin/data/db
+  excluded: []
 
 # ---------- 云备份上传 ----------
 cloud-backup:
