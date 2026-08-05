@@ -212,8 +212,12 @@ public class ClawBackup extends JavaPlugin {
             // 写入回档后命令标记文件（下次启动时执行）
             java.util.List<String> postCommands = new java.util.ArrayList<>(config.getPostRestoreCommands());
             if (config.isAutoHookPlugins()) {
-                // LuckPerms：检测导出文件（lp export 默认生成 backup.json，兼容 backup.yml）
-                String[] lpExportNames = {"plugins/LuckPerms/backup.json", "plugins/LuckPerms/backup.yml"};
+                // LuckPerms：检测导出文件（lp export 默认生成 backup.json.gz，兼容 json/yml）
+                String[] lpExportNames = {
+                        "plugins/LuckPerms/backup.json.gz",
+                        "plugins/LuckPerms/backup.json",
+                        "plugins/LuckPerms/backup.yml"
+                };
                 for (String lpName : lpExportNames) {
                     if (java.nio.file.Files.exists(java.nio.file.Paths.get(lpName))) {
                         postCommands.add("lp import backup");
