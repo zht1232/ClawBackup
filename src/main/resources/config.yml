@@ -1,5 +1,5 @@
 # ===================================================
-#          🐾 ClawBackup v1.4.4 - 配置文件
+#          🐾 ClawBackup v1.4.5 - 配置文件
 #   专业 Minecraft 服务器备份插件 · 开源社区版
 #   兼容 Paper / Purpur / Folia  |  MC 1.16 ~ 26.2
 # ===================================================
@@ -39,9 +39,18 @@ backup:
 # ---------- 存储设置 ----------
 storage:
   # 备份存放路径
-  # - 相对路径: 相对于服务器根目录
-  # - 绝对路径: 支持跨磁盘存放，例如: D:\MinecraftBackups
-  backup-path: "backups"
+  # - 相对路径: 相对于服务器根目录（例如 backups）
+  # - 绝对路径: 支持跨磁盘存放（例如 D 盘）
+  #
+  # ⚠️ Windows 路径写法（重要！容易踩坑）：
+  #   YAML 的「双引号」里反斜杠是转义符，"D:\backups" 会解析报错，
+  #   导致整份配置失效、所有设置回退默认。
+  #   推荐写法（三选一）：
+  #     1) 正斜杠:            backup-path: 'D:/MinecraftBackups'
+  #     2) 单引号（最省心）:   backup-path: 'D:\MinecraftBackups'
+  #     3) 双引号+双反斜杠:    backup-path: "D:\\MinecraftBackups"
+  #   路径含空格时用引号包住即可（上面已演示）。
+  backup-path: 'backups'
 
   # ZIP 压缩等级 (0=仅存储不压缩, 1=最快, 6=默认, 9=最高压缩)
   # 注意: 等级越高越慢但文件越小
@@ -50,8 +59,8 @@ storage:
   # 是否使用临时目录先构建再移动（可加快最终写入速度）
   use-temp-dir: false
 
-  # 临时目录路径
-  temp-path: "plugins/ClawBackup/temp"
+  # 临时目录路径（相对路径，相对于服务器根目录）
+  temp-path: 'plugins/ClawBackup/temp'
 
 # ---------- 调度设置 ----------
 schedule:
@@ -187,19 +196,19 @@ cloud-backup:
     enabled: false
     # GitHub Personal Access Token（需要 repo 权限）
     # 生成: GitHub → Settings → Developer settings → Personal access tokens → Generate new token
-    token: ""
+    token: ''
     # 目标仓库（owner/repo）
-    repo: "zht1232/ClawBackup"
+    repo: 'zht1232/ClawBackup'
 
   # 百度网盘（需要百度开发者应用 + OAuth 授权获取 access_token）
   # 1. 前往百度网盘开放平台申请应用，获取 app_id / api_key / secret_key
   # 2. 用 api_key/secret_key 完成 OAuth 授权，换取 access_token 填入下方
   baidu:
     enabled: false
-    access-token: ""
+    access-token: ''
     app-id: 0
     # 上传到网盘中的目录
-    dir: "/apps/ClawBackup"
+    dir: '/apps/ClawBackup'
 
 # ---------- 告警通知 ----------
 notify:
@@ -212,25 +221,25 @@ notify:
   email:
     enabled: false
     # SMTP 服务器（QQ: smtp.qq.com / 163: smtp.163.com / Gmail: smtp.gmail.com）
-    host: "smtp.qq.com"
+    host: 'smtp.qq.com'
     port: 465
     ssl: true
     # 登录邮箱账号（QQ/163 需在邮箱设置中开启 SMTP 并生成授权码作为密码）
-    username: ""
-    password: ""
+    username: ''
+    password: ''
     # 发件人（留空则用 username）
-    from: ""
+    from: ''
     # 收件人列表
     to: []
 
   # 飞书机器人通知（自定义机器人 webhook）
   feishu:
     enabled: false
-    webhook: ""
+    webhook: ''
 
   # 钉钉机器人通知（自定义机器人 webhook，支持加签）
   dingtalk:
     enabled: false
-    webhook: ""
+    webhook: ''
     # 加签密钥（若机器人设置了加签，填 SEC... 开头的密钥；未设置可留空）
-    secret: ""
+    secret: ''

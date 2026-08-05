@@ -76,13 +76,13 @@ cloud-backup:
   enabled: true
   github:
     enabled: true
-    token: "ghp_xxx"                      # GitHub PAT（需 repo 权限）
-    repo: "zht1232/ClawBackup"
+    token: 'ghp_xxx'                      # GitHub PAT（需 repo 权限）
+    repo: 'zht1232/ClawBackup'
   baidu:
     enabled: false
-    access-token: ""                      # 百度开发者应用 OAuth token
+    access-token: ''                      # 百度开发者应用 OAuth token
     app-id: 0
-    dir: "/apps/ClawBackup"
+    dir: '/apps/ClawBackup'
 ```
 
 ### 告警通知示例
@@ -94,20 +94,20 @@ notify:
   on-backup-start: false
   email:
     enabled: true
-    host: "smtp.qq.com"
+    host: 'smtp.qq.com'
     port: 465
     ssl: true
-    username: "you@qq.com"
-    password: "SMTP授权码"                 # 非登录密码！
-    from: ""
-    to: ["admin@example.com"]
+    username: 'you@qq.com'
+    password: 'SMTP授权码'                 # 非登录密码！
+    from: ''
+    to: ['admin@example.com']
   feishu:
     enabled: true
-    webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+    webhook: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx'
   dingtalk:
     enabled: true
-    webhook: "https://oapi.dingtalk.com/robot/send?access_token=xxx"
-    secret: ""                            # 机器人加签密钥（可选）
+    webhook: 'https://oapi.dingtalk.com/robot/send?access_token=xxx'
+    secret: ''                            # 机器人加签密钥（可选）
 ```
 
 ## ⚠️ 注意点
