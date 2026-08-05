@@ -48,6 +48,12 @@ public class ClawBackup extends JavaPlugin {
     // 插件是否正在关闭（用于避免备份线程与 onDisable 主线程互锁）
     private volatile boolean disabling = false;
 
+    // 是否处于回档后恢复窗口（期间跳过所有备份，避免覆盖刚恢复的数据）
+    private volatile boolean restoring = false;
+
+    // 本次启动是否刚完成回档（跳过下一次启动备份，避免与恢复操作冲突）
+    private volatile boolean skipNextStartupBackup = false;
+
     @Override
     public void onLoad() {
         instance = this;
@@ -130,6 +136,12 @@ public class ClawBackup extends JavaPlugin {
             // 延迟 60 秒，等待服务器完全启动、区块加载和异步 IO 完成
             Message.log("§e[ClawBackup] §f[7/7] §e⚡ 将在 60 秒后执行启动备份（等待服务器稳定）...");
             SchedulerUtil.runLater(this, 1200L, () -> {
+                // 刚完成回档重启：跳过本次启动备份，避免与回档后恢复（如 QuickShop）冲突
+                if (skipNextStartupBackup) {
+                    Message.log("§e[ClawBackup] §f[7/7] §e◌ 刚完成回档，已跳过本次启动备份");
+                    skipNextStartupBackup = false;
+                    return;
+                }
                 if (backupManager != null) {
                     backupManager.runBackup("启动", null);
                 }
@@ -310,6 +322,11 @@ public class ClawBackup extends JavaPlugin {
         java.nio.file.Path markerFile = java.nio.file.Paths.get("plugins/ClawBackup/post-restore-commands.txt");
         if (!java.nio.file.Files.exists(markerFile)) return;
 
+        // 进入回档后恢复窗口：期间禁止触发任何备份，避免覆盖刚恢复的数据
+        restoring = true;
+        skipNextStartupBackup = true; // 回档后重启，跳过本次启动备份
+        Message.log("§e[ClawBackup] §a✔ 进入回档后恢复窗口（此期间将跳过所有备份）");
+
         // 回档后 CustomNameplates 数据导入（延迟异步执行，等待插件就绪后写回 H2）
         if (config.isAutoHookPlugins() && CustomNameplatesExporter.isAvailable()) {
             SchedulerUtil.runAsync(this, () -> {
@@ -319,26 +336,71 @@ public class ClawBackup extends JavaPlugin {
         }
 
         try {
-            java.util.List<String> commands = java.nio.file.Files.readAllLines(markerFile);
+            java.util.List<String> commands = new java.util.ArrayList<>(
+                    java.nio.file.Files.readAllLines(markerFile));
             java.nio.file.Files.delete(markerFile);
 
-            if (commands.isEmpty()) return;
+            // 确保 QuickShop 自动恢复命令存在（多一层保障：即使回档流程未生成该命令也会补上）
+            if (config.isAutoHookPlugins() && config.isAutoRestoreQuickshop()) {
+                java.nio.file.Path qsDir = java.nio.file.Paths.get("plugins/QuickShop-Hikari");
+                if (java.nio.file.Files.isDirectory(qsDir)) {
+                    java.nio.file.Path newestZip = null;
+                    long newestTime = -1;
+                    try (java.nio.file.DirectoryStream<java.nio.file.Path> ds =
+                                 java.nio.file.Files.newDirectoryStream(qsDir, "export-*.zip")) {
+                        for (java.nio.file.Path p : ds) {
+                            try {
+                                long t = java.nio.file.Files.getLastModifiedTime(p).toMillis();
+                                if (t > newestTime) { newestTime = t; newestZip = p; }
+                            } catch (Exception ignored) {}
+                        }
+                    } catch (Exception ignored) {}
+                    boolean hasRecovery = commands.stream().anyMatch(c ->
+                            c.toLowerCase().contains("recovery"));
+                    if (newestZip != null && !hasRecovery) {
+                        try {
+                            java.nio.file.Files.copy(newestZip,
+                                    qsDir.resolve("recovery.zip"),
+                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            commands.add("quickshop recovery recovery.zip");
+                            Message.log("§e[ClawBackup] §a✔ 已自动补加 QuickShop 恢复命令");
+                        } catch (Exception e) {
+                            Message.log("§c[ClawBackup] §4补加 QuickShop 恢复失败: " + e.getMessage());
+                        }
+                    }
+                }
+            }
 
             Message.log("§e[ClawBackup] §a✔ 检测到回档后命令标记文件");
-            Message.log("§e[ClawBackup] §7将在 5 秒后执行回档后命令...");
+            Message.log("§e[ClawBackup] §7将在 10 秒后执行回档后命令...");
 
-            // 延迟执行，等待其他插件加载完成
-            SchedulerUtil.runLater(this, 100L, () -> {
-                Message.log("§e[ClawBackup] §7开始执行回档后命令...");
-                for (String cmd : commands) {
-                    Message.log("§e[ClawBackup] §7  > §f" + cmd);
-                    getServer().dispatchCommand(getServer().getConsoleSender(), cmd);
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+            // 延迟执行，等待其他插件加载完成（10 秒，确保 QuickShop 等已就绪）
+            SchedulerUtil.runLater(this, 200L, () -> {
+                try {
+                    for (String cmd : commands) {
+                        Message.log("§e[ClawBackup] §7  > §f" + cmd);
+                        getServer().dispatchCommand(getServer().getConsoleSender(), cmd);
+                        // QuickShop recovery 需要二次确认，延迟 2 秒后自动补发 confirm 完成导入
+                        if (cmd.toLowerCase().contains("quickshop recovery")
+                                || cmd.toLowerCase().contains("qs recovery")) {
+                            SchedulerUtil.runLater(this, 40L, () -> {
+                                Message.log("§e[ClawBackup] §7  > §fquickshop recovery confirm");
+                                getServer().dispatchCommand(getServer().getConsoleSender(),
+                                        "quickshop recovery confirm");
+                            });
+                        }
+                        try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                    }
+                    Message.log("§e[ClawBackup] §a✔ 回档后命令执行完成");
+                } finally {
+                    // 恢复窗口结束，恢复备份功能
+                    restoring = false;
+                    Message.log("§e[ClawBackup] §a✔ 回档后恢复完成，备份功能已恢复");
                 }
-                Message.log("§e[ClawBackup] §a✔ 回档后命令执行完成");
             });
 
         } catch (Exception e) {
+            restoring = false; // 出错也要结束窗口，避免永久锁死备份
             Message.log("§e[ClawBackup] §c✗ 读取回档后命令失败: " + e.getMessage());
         }
     }
@@ -403,6 +465,11 @@ public class ClawBackup extends JavaPlugin {
     /** 插件是否正在关闭（备份线程据此避免与 onDisable 互锁） */
     public boolean isDisabling() {
         return disabling;
+    }
+
+    /** 是否处于回档后恢复窗口（期间跳过所有备份，避免覆盖刚恢复的数据） */
+    public boolean isRestoring() {
+        return restoring;
     }
 
     public BackupConfig getBackupConfig() {

@@ -89,6 +89,17 @@ public class BackupManager {
             return CompletableFuture.completedFuture(new BackupResult(false, "已在运行中", null));
         }
 
+        // 回档后恢复窗口：禁止触发备份，避免覆盖刚恢复的数据
+        if (plugin.isRestoring()) {
+            Message.log("§e[备份] §6⏭ 回档后恢复进行中，已跳过本次备份（避免覆盖刚恢复的数据）");
+            if (sender != null) {
+                SchedulerUtil.runSync(plugin, () ->
+                    sender.sendMessage(Message.prefix("§6⏭ 回档后恢复进行中，已跳过本次备份"))
+                );
+            }
+            return CompletableFuture.completedFuture(new BackupResult(false, "回档后恢复中", null));
+        }
+
         // 检查是否被智能跳过
         if (config.isSmartBackup() && config.getSmartBackupThreshold() >= 0) {
             int online = plugin.getPlayerTracker().getOnlineCount();
@@ -818,6 +829,29 @@ public class BackupManager {
                 Message.log("§e[回档] §7正在保存世界数据...");
                 runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "save-all flush"));
                 Thread.sleep(2000);
+
+                // 3.5 禁用所有其他插件（保留 ClawBackup 自身）。
+                // 实际回档（清空/覆盖 plugins 目录）发生在服务器关闭过程的 onDisable 中，
+                // 此时若其他插件仍在运行（如 Ranking 的定时保存），会在目录被清空时写入失败或数据错乱。
+                // 故提前逐个禁用，让它们先正常 onDisable 保存，再进入清空/解压阶段。
+                final int[] disabledCount = {0};
+                runSyncAndWait(() -> {
+                    for (org.bukkit.plugin.Plugin p : Bukkit.getPluginManager().getPlugins()) {
+                        if (p == plugin) continue;
+                        if (p.isEnabled()) {
+                            try {
+                                Bukkit.getPluginManager().disablePlugin(p);
+                                disabledCount[0]++;
+                            } catch (Exception ex) {
+                                Message.log("§c[回档] §4禁用插件失败 §7" + p.getName()
+                                        + " §8(" + ex.getMessage() + ")");
+                            }
+                        }
+                    }
+                });
+                Message.log("§e[回档] §a✔ 已禁用 " + disabledCount[0] + " 个插件（避免回档期间插件写入数据）");
+                // 等待各插件 onDisable 完成落盘
+                Thread.sleep(1000);
 
                 // 4. 写入回档标记文件（onDisable 会读取并执行实际回档）
                 Path markerFile = Paths.get("plugins/ClawBackup/pending-restore.txt");
