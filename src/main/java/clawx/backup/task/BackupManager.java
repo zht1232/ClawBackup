@@ -276,6 +276,16 @@ public class BackupManager {
                         Message.log("§e[备份] §a✔ 检测到 LuckPerms，自动添加导出命令");
                     }
                 }
+                // QuickShop：备份前自动导出商店数据（quickshop export 生成 export-<时间戳>.zip）
+                if (Bukkit.getPluginManager().getPlugin("QuickShop") != null
+                        || Bukkit.getPluginManager().getPlugin("QuickShop-Hikari") != null) {
+                    boolean hasQsExport = preCommands.stream().anyMatch(cmd ->
+                        cmd.toLowerCase().startsWith("qs export") || cmd.toLowerCase().startsWith("quickshop export"));
+                    if (!hasQsExport) {
+                        preCommands.add("quickshop export");
+                        Message.log("§e[备份] §a✔ 检测到 QuickShop，自动添加导出命令");
+                    }
+                }
             }
 
             if (!preCommands.isEmpty()) {
@@ -284,7 +294,12 @@ public class BackupManager {
                 for (String cmd : preCommands) {
                     Message.log("§e[备份] §7  > §f" + cmd);
                     runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd));
-                    Thread.sleep(500);
+                    // 导出类命令为异步执行，需等待其写入完成，否则会打包到上一次的旧导出文件（导致备份日期不同步）
+                    if (cmd.toLowerCase().contains("export")) {
+                        Thread.sleep(5000);
+                    } else {
+                        Thread.sleep(500);
+                    }
                 }
                 Message.log("§e[备份] §a✔ 备份前命令执行完成");
             }
