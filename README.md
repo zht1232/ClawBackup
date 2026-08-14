@@ -5,7 +5,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 > 支持 **Paper / Purpur / Folia** · MC **1.20.1 ~ 26.2** · Java 17+
-> 当前版本 **1.6.13**
+> 当前版本 **1.6.14**
 
 ---
 
@@ -139,6 +139,7 @@ build.bat
 
 ## 更新历史
 
+- **1.6.14**：修复 MineStock 持仓数据恢复/导出失败（MineStock 懒初始化 holdings 表，回档后 3 秒表未建导致「Table HOLDINGS not found」）——新增等待表出现的轮询（最多 60 秒、不抢建空库），备份与恢复都生效
 - **1.6.13**：修复回档时「检测到正在运行的备份任务」误报（回档准备与备份共用 running 标志，插件 onDisable 提前关服导致 onDisable 误判）；回档标记改为轮询等待（不再依赖时序巧合）；回档禁用插件前打印说明（插件「运行时禁用」警告属正常）
 - **1.6.12**：修复 1.6.11 引入的严重问题 — `getServerRoot()` 必须 `toAbsolutePath()`（部分核心上 `getWorldContainer()` 返回相对路径，`normalize()` 后为空路径，导致回档把所有文件误判为不安全路径、恢复 0 个文件）；修复备份完成时聊天框重复提示（玩家执行备份时广播与私聊提示重复）
 - **1.6.11**：服务器根目录改用 Bukkit API（`getWorldContainer`）获取，彻底移除对进程工作目录的依赖，适配面板/守护进程/脚本等任意启动方式；备份路径、数据库扫描、回档标记文件全部基于绝对根目录

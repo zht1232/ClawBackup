@@ -44,10 +44,32 @@ public final class MineStockExporter {
         return ClawBackup.getServerRoot().resolve("plugins/MineStock/backup.json");
     }
 
-    /** MineStock 插件是否已加载且使用 H2（存在 .mv.db 文件） */
+    /** MineStock 插件是否已加载（用于决定是否挂钩；库/表就绪与否由 waitForHoldingsTable 处理） */
     public static boolean isAvailable() {
-        return Bukkit.getPluginManager().getPlugin(PLUGIN_NAME) != null
-                && Files.exists(ClawBackup.getServerRoot().resolve(DB_FILE + ".mv.db"));
+        return Bukkit.getPluginManager().getPlugin(PLUGIN_NAME) != null;
+    }
+
+    /**
+     * 等待 MineStock 创建 holdings 表（MineStock 可能懒初始化/异步建表）。
+     * 最多等待 60 秒（30 次 × 2 秒）。期间只在 .mv.db 已存在后才连接查询，
+     * 绝不主动创建空库，避免与 MineStock 的初始化抢文件。
+     */
+    private static boolean waitForHoldingsTable() {
+        for (int attempt = 0; attempt < 30; attempt++) {
+            if (Files.exists(ClawBackup.getServerRoot().resolve(DB_FILE + ".mv.db"))) {
+                try (Connection c = DriverManager.getConnection(JDBC_URL);
+                     Statement s = c.createStatement();
+                     ResultSet rs = s.executeQuery(
+                             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'HOLDINGS'")) {
+                    if (rs.next() && rs.getInt(1) > 0) return true;
+                } catch (Exception ignored) {
+                    // 表尚未就绪，稍后重试
+                }
+            }
+            try { Thread.sleep(2000); }
+            catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+        }
+        return false;
     }
 
     /** 备份前导出：JDBC 读取 holdings 表写入 backup.json（随备份打包）。返回是否执行了导出。 */
@@ -57,6 +79,10 @@ public final class MineStockExporter {
             Path exportFile = exportFile();
             Files.deleteIfExists(exportFile);
             Class.forName(H2_DRIVER);
+            if (!waitForHoldingsTable()) {
+                Message.log("§c[备份] §4MineStock 导出失败（holdings 表尚未创建）");
+                return false;
+            }
             StringBuilder sb = new StringBuilder();
             int count = 0;
             try (Connection conn = DriverManager.getConnection(JDBC_URL);
@@ -88,6 +114,11 @@ public final class MineStockExporter {
         if (!Files.exists(exportFile)) return false;
         try {
             Class.forName(H2_DRIVER);
+            // 等待 MineStock 创建 holdings 表（懒初始化），否则 DELETE/INSERT 会报表不存在
+            if (!waitForHoldingsTable()) {
+                Message.log("§c[回档] §4MineStock 导入失败（holdings 表尚未创建）");
+                return false;
+            }
             int count = 0;
             try (Connection conn = DriverManager.getConnection(JDBC_URL);
                  Statement del = conn.createStatement()) {
