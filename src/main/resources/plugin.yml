@@ -1,5 +1,5 @@
 name: ClawBackup
-version: 1.6.14
+version: 1.6.15
 main: clawx.backup.ClawBackup
 api-version: "1.20"
 description: "🐾 ClawBackup - 专业Minecraft服务器备份插件 | 支持 Paper / Purpur / Folia | 多版本兼容 1.20.1-26.2"

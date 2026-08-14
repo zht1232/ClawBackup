@@ -469,24 +469,22 @@ public class BackupManager {
             int[] lockStat = reportDatabaseBackupStatus(skippedFiles);
             int totalMissing = lockStat[2] + lockStat[3];
 
-            // 玩家广播（只报完成 + 未备份警告，不重复"跳过被锁文件"）
+            // 玩家广播（文件名并入一行；玩家执行备份时只靠广播，不再重复私聊）
             if (config.isNotifyPlayers()) {
-                String finalSize = sizeStr, finalTime = timeStr;
+                String finalSize = sizeStr, finalTime = timeStr, finalName = zipFile.getFileName().toString();
                 int finalMissing = totalMissing;
                 SchedulerUtil.runSync(plugin, () -> {
-                    Bukkit.broadcastMessage(Message.prefix("§a✅ 备份完成！ §7(§f" + finalSize
-                            + " §8| §f" + finalTime + "§7)"));
+                    Bukkit.broadcastMessage(Message.prefix("§a✅ 备份完成！ §f" + finalName
+                            + " §7(§f" + finalSize + " §8| §f" + finalTime + "§7)"));
                     if (finalMissing > 0)
                         Bukkit.broadcastMessage(Message.prefix("§6⚠ 有 " + finalMissing + " 个文件未备份，详见控制台"));
                 });
             }
 
-            // sender 通知（若 sender 是玩家且已广播，跳过重复的"备份完成"行，避免弹两次）
-            if (sender != null) {
-                boolean alreadyBroadcast = config.isNotifyPlayers() && sender instanceof org.bukkit.entity.Player;
-                if (!alreadyBroadcast) {
-                    sender.sendMessage(Message.prefix("§a✅ 备份完成! §8[§7" + sizeStr + " §8| §7" + timeStr + "§8]"));
-                }
+            // sender 通知：仅当 sender 不是「已收到广播的玩家」时才发（控制台/命令方块），避免玩家弹两次
+            boolean isBroadcastPlayer = config.isNotifyPlayers() && sender instanceof org.bukkit.entity.Player;
+            if (sender != null && !isBroadcastPlayer) {
+                sender.sendMessage(Message.prefix("§a✅ 备份完成! §8[§7" + sizeStr + " §8| §7" + timeStr + "§8]"));
                 sender.sendMessage(Message.prefix("§7文件: §f" + zipFile.getFileName()));
                 if (totalMissing > 0)
                     sender.sendMessage(Message.prefix("§6⚠ 有 " + totalMissing + " 个文件未备份（详见控制台）"));
