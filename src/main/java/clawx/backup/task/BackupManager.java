@@ -302,14 +302,14 @@ public class BackupManager {
                 for (String cmd : preCommands) {
                     String lowerCmd = cmd.toLowerCase();
                     if (lowerCmd.startsWith("lp export") || lowerCmd.startsWith("luckperms export")) {
-                        deleteIfExists(java.nio.file.Paths.get("plugins/LuckPerms", "backup.json.gz"));
-                        deleteIfExists(java.nio.file.Paths.get("plugins/LuckPerms", "backup.json"));
-                        deleteIfExists(java.nio.file.Paths.get("plugins/LuckPerms", "backup.yml"));
+                        deleteIfExists(ClawBackup.getServerRoot().resolve("plugins/LuckPerms/backup.json.gz"));
+                        deleteIfExists(ClawBackup.getServerRoot().resolve("plugins/LuckPerms/backup.json"));
+                        deleteIfExists(ClawBackup.getServerRoot().resolve("plugins/LuckPerms/backup.yml"));
                     }
                     if (lowerCmd.startsWith("qs export") || lowerCmd.startsWith("quickshop export")) {
-                        deleteMatching(java.nio.file.Paths.get("plugins/QuickShop-Hikari"), "export-*.zip");
+                        deleteMatching(ClawBackup.getServerRoot().resolve("plugins/QuickShop-Hikari"), "export-*.zip");
                         // 顺带删除回档遗留的 recovery.zip（临时副本，避免被打包进下次备份造成重复体积）
-                        deleteIfExists(java.nio.file.Paths.get("plugins/QuickShop-Hikari", "recovery.zip"));
+                        deleteIfExists(ClawBackup.getServerRoot().resolve("plugins/QuickShop-Hikari/recovery.zip"));
                     }
                 }
                 setPhase("执行备份前命令...");
@@ -368,7 +368,7 @@ public class BackupManager {
 
             // 5. 压缩
             setPhase("压缩打包中...");
-            Path serverRoot = Paths.get(".").toAbsolutePath().normalize();
+            Path serverRoot = ClawBackup.getServerRoot();
 
             try (FileOutputStream fos = new FileOutputStream(zipFile.toFile());
                  BufferedOutputStream bos = new BufferedOutputStream(fos, 65536);
@@ -573,7 +573,7 @@ public class BackupManager {
     // ===== 文件收集（含自动发现多世界、排除规则）=====
     private List<Path> collectFiles() {
         List<Path> files = new ArrayList<>();
-        Path serverRoot = Paths.get(".").toAbsolutePath().normalize();
+        Path serverRoot = ClawBackup.getServerRoot();
         List<String> excludeTypes = config.getExcludeFileTypes();
         Set<String> lowerExclude = new HashSet<>();
         for (String t : excludeTypes) lowerExclude.add(t.toLowerCase());
@@ -743,7 +743,7 @@ public class BackupManager {
     /** 路径是否位于 plugins/ 目录下（用于区分世界文件与插件数据库文件） */
     private static boolean isUnderPlugins(Path file) {
         try {
-            Path plugins = Paths.get("plugins").toAbsolutePath().normalize();
+            Path plugins = ClawBackup.getServerRoot().resolve("plugins");
             return file.toAbsolutePath().normalize().startsWith(plugins);
         } catch (Exception e) {
             return true; // 判定失败时保守跳过，避免误拷贝运行中的库
@@ -851,7 +851,7 @@ public class BackupManager {
         stat[0] = dbTotal;
         int covered = 0;
         List<String> missing = new ArrayList<>();
-        Path serverRoot = Paths.get(".").toAbsolutePath().normalize();
+        Path serverRoot = ClawBackup.getServerRoot();
         for (String entry : dbEntries) {
             Path abs = serverRoot.resolve(entry).normalize();
             if (H2BackupExporter.isExported(abs)
@@ -895,18 +895,19 @@ public class BackupManager {
     /** 判断某个被锁的库是否已有官方导出文件覆盖（LuckPerms/QuickShop/CustomNameplates/MineStock） */
     private static String officialExportReason(String entry) {
         String path = entry.replace('\\', '/');
-        if (path.contains("LuckPerms") && (Files.exists(Paths.get("plugins/LuckPerms/backup.json.gz"))
-                || Files.exists(Paths.get("plugins/LuckPerms/backup.json"))
-                || Files.exists(Paths.get("plugins/LuckPerms/backup.yml")))) {
+        Path plugins = ClawBackup.getServerRoot().resolve("plugins");
+        if (path.contains("LuckPerms") && (Files.exists(plugins.resolve("LuckPerms/backup.json.gz"))
+                || Files.exists(plugins.resolve("LuckPerms/backup.json"))
+                || Files.exists(plugins.resolve("LuckPerms/backup.yml")))) {
             return "LuckPerms 官方导出 (lp export)";
         }
         if (path.contains("QuickShop") && hasQuickShopExport()) {
             return "QuickShop 官方导出 (quickshop export)";
         }
-        if (path.contains("CustomNameplates") && Files.exists(Paths.get("plugins/CustomNameplates/backup.json"))) {
+        if (path.contains("CustomNameplates") && Files.exists(plugins.resolve("CustomNameplates/backup.json"))) {
             return "CustomNameplates 官方导出 (API)";
         }
-        if (path.contains("MineStock") && Files.exists(Paths.get("plugins/MineStock/backup.json"))) {
+        if (path.contains("MineStock") && Files.exists(plugins.resolve("MineStock/backup.json"))) {
             return "MineStock 官方导出 (JDBC)";
         }
         return null;
@@ -914,7 +915,7 @@ public class BackupManager {
 
     /** QuickShop-Hikari 目录下是否存在本次导出的 export-*.zip */
     private static boolean hasQuickShopExport() {
-        Path qs = Paths.get("plugins/QuickShop-Hikari");
+        Path qs = ClawBackup.getServerRoot().resolve("plugins/QuickShop-Hikari");
         if (!Files.isDirectory(qs)) return false;
         try (DirectoryStream<Path> ds = Files.newDirectoryStream(qs, "export-*.zip")) {
             return ds.iterator().hasNext();
@@ -1033,7 +1034,7 @@ public class BackupManager {
                 Thread.sleep(1000);
 
                 // 4. 写入回档标记文件（onDisable 会读取并执行实际回档）
-                Path markerFile = Paths.get("plugins/ClawBackup/pending-restore.txt");
+                Path markerFile = ClawBackup.getServerRoot().resolve("plugins/ClawBackup/pending-restore.txt");
                 Files.createDirectories(markerFile.getParent());
                 Files.write(markerFile, zipFile.toAbsolutePath().toString()
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -1097,7 +1098,7 @@ public class BackupManager {
     public void doRestore(String zipFilePath) {
         long startTime = System.currentTimeMillis();
         Path zipFile = Paths.get(zipFilePath);
-        Path serverRoot = Paths.get(".").toAbsolutePath().normalize();
+        Path serverRoot = ClawBackup.getServerRoot();
 
         Message.log("§e[回档] §f==================================");
         Message.log("§e[回档] §f开始执行回档: §b" + zipFile.getFileName());

@@ -1,5 +1,6 @@
 package clawx.backup.integration;
 
+import clawx.backup.ClawBackup;
 import clawx.backup.util.Message;
 import net.momirealms.customnameplates.api.CustomNameplates;
 import net.momirealms.customnameplates.api.storage.DataStorageProvider;
@@ -28,8 +29,12 @@ import java.util.concurrent.TimeUnit;
 public final class CustomNameplatesExporter {
 
     private static final String PLUGIN_NAME = "CustomNameplates";
-    private static final Path EXPORT_FILE = Paths.get("plugins", "CustomNameplates", "backup.json");
     private static final long PER_PLAYER_TIMEOUT_MS = 5000;
+
+    /** 导出文件路径（基于 Bukkit 服务器根目录，适配任意部署环境） */
+    private static Path exportFile() {
+        return ClawBackup.getServerRoot().resolve("plugins/CustomNameplates/backup.json");
+    }
 
     private CustomNameplatesExporter() {
     }
@@ -44,7 +49,8 @@ public final class CustomNameplatesExporter {
         if (!isAvailable()) return false;
         try {
             // 先删除旧导出，避免打包到上一次的旧数据
-            Files.deleteIfExists(EXPORT_FILE);
+            Path exportFile = exportFile();
+            Files.deleteIfExists(exportFile);
             StorageManager sm = CustomNameplates.getInstance().getStorageManager();
             DataStorageProvider ds = sm.dataSource();
             Set<UUID> users = ds.getUniqueUsers();
@@ -71,7 +77,7 @@ public final class CustomNameplatesExporter {
                             + " §8(" + e.getMessage() + ")");
                 }
             }
-            Files.write(EXPORT_FILE, sb.toString().getBytes(StandardCharsets.UTF_8));
+            Files.write(exportFile, sb.toString().getBytes(StandardCharsets.UTF_8));
             Message.log("§e[备份] §a✔ CustomNameplates 数据已导出 §7(" + exported + "/" + users.size() + " 名玩家)");
             return true;
         } catch (Exception e) {
@@ -83,12 +89,13 @@ public final class CustomNameplatesExporter {
     /** 回档后导入：读取 backup.json 并把数据写回 H2。返回是否导入了数据。 */
     public static boolean restore() {
         if (!isAvailable()) return false;
-        if (!Files.exists(EXPORT_FILE)) return false;
+        Path exportFile = exportFile();
+        if (!Files.exists(exportFile)) return false;
         try {
             StorageManager sm = CustomNameplates.getInstance().getStorageManager();
             DataStorageProvider ds = sm.dataSource();
             int count = 0;
-            try (BufferedReader r = Files.newBufferedReader(EXPORT_FILE, StandardCharsets.UTF_8)) {
+            try (BufferedReader r = Files.newBufferedReader(exportFile, StandardCharsets.UTF_8)) {
                 String line;
                 while ((line = r.readLine()) != null) {
                     line = line.trim();

@@ -1,5 +1,6 @@
 package clawx.backup.integration;
 
+import clawx.backup.ClawBackup;
 import clawx.backup.config.BackupConfig;
 import clawx.backup.util.Message;
 
@@ -95,7 +96,7 @@ public final class SqliteBackupExporter {
     /** 回档后恢复：ATTACH 备份库并通过 SQL 逐表复制数据到插件正在使用的库。返回恢复成功数。 */
     public static int restore() {
         List<Path> backups = new ArrayList<>();
-        Path plugins = Paths.get("plugins");
+        Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (Files.isDirectory(plugins)) {
             try {
                 Files.walkFileTree(plugins, new SimpleFileVisitor<Path>() {
@@ -184,7 +185,7 @@ public final class SqliteBackupExporter {
      */
     public static int restoreByCopy() {
         List<Path> backups = new ArrayList<>();
-        Path plugins = Paths.get("plugins");
+        Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (Files.isDirectory(plugins)) {
             try {
                 Files.walkFileTree(plugins, new SimpleFileVisitor<Path>() {
@@ -273,7 +274,7 @@ public final class SqliteBackupExporter {
     /** 扫描 plugins/ 下所有 SQLite 数据库文件（跳过已生成的 sqlitebackup-* 备份） */
     private static List<Path> findSqliteDbs() {
         List<Path> result = new ArrayList<>();
-        Path plugins = Paths.get("plugins");
+        Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (!Files.isDirectory(plugins)) return result;
         try {
             Files.walkFileTree(plugins, new SimpleFileVisitor<Path>() {

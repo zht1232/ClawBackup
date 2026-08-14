@@ -1,5 +1,6 @@
 package clawx.backup.integration;
 
+import clawx.backup.ClawBackup;
 import clawx.backup.config.BackupConfig;
 import clawx.backup.util.Message;
 
@@ -94,7 +95,7 @@ public final class H2BackupExporter {
     /** 回档后导入：扫描所有 h2backup-*.sql 并 RUNSCRIPT 恢复。返回恢复成功数。 */
     public static int restore() {
         List<Path> sqls = new ArrayList<>();
-        Path plugins = Paths.get("plugins");
+        Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (Files.isDirectory(plugins)) {
             try {
                 Files.walkFileTree(plugins, new SimpleFileVisitor<Path>() {
@@ -163,7 +164,7 @@ public final class H2BackupExporter {
     /** 扫描 plugins/ 下被锁定的 .mv.db（未被锁的会正常打包，无需导出） */
     private static List<Path> findLockedH2Dbs() {
         List<Path> result = new ArrayList<>();
-        Path plugins = Paths.get("plugins");
+        Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (!Files.isDirectory(plugins)) return result;
         try {
             Files.walkFileTree(plugins, new SimpleFileVisitor<Path>() {

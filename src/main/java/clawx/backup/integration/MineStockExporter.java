@@ -1,5 +1,6 @@
 package clawx.backup.integration;
 
+import clawx.backup.ClawBackup;
 import clawx.backup.util.Message;
 import org.bukkit.Bukkit;
 
@@ -28,7 +29,9 @@ public final class MineStockExporter {
 
     private static final String PLUGIN_NAME = "MineStock";
     private static final String DB_FILE = "plugins/MineStock/data/minestock";
-    private static final Path EXPORT_FILE = Paths.get("plugins", "MineStock", "backup.json");
+    // 注意：JDBC URL 必须与 MineStock 插件内部使用的路径写法一致（相对 ./plugins/...），
+    // 否则 H2 AUTO_SERVER 会视为不同的库而连不上；ClawBackup 与 MineStock 同属一个 JVM，
+    // 相对路径解析结果必然一致（CWD 相同），因此这里保持相对路径、不要改成绝对路径。
     private static final String JDBC_URL =
             "jdbc:h2:file:./plugins/MineStock/data/minestock;MODE=MySQL;AUTO_SERVER=TRUE";
     private static final String H2_DRIVER = "org.h2.Driver";
@@ -36,17 +39,23 @@ public final class MineStockExporter {
     private MineStockExporter() {
     }
 
+    /** 导出文件路径（基于 Bukkit 服务器根目录，适配任意部署环境） */
+    private static Path exportFile() {
+        return ClawBackup.getServerRoot().resolve("plugins/MineStock/backup.json");
+    }
+
     /** MineStock 插件是否已加载且使用 H2（存在 .mv.db 文件） */
     public static boolean isAvailable() {
         return Bukkit.getPluginManager().getPlugin(PLUGIN_NAME) != null
-                && Files.exists(Paths.get(DB_FILE + ".mv.db"));
+                && Files.exists(ClawBackup.getServerRoot().resolve(DB_FILE + ".mv.db"));
     }
 
     /** 备份前导出：JDBC 读取 holdings 表写入 backup.json（随备份打包）。返回是否执行了导出。 */
     public static boolean export() {
         if (!isAvailable()) return false;
         try {
-            Files.deleteIfExists(EXPORT_FILE);
+            Path exportFile = exportFile();
+            Files.deleteIfExists(exportFile);
             Class.forName(H2_DRIVER);
             StringBuilder sb = new StringBuilder();
             int count = 0;
@@ -64,7 +73,7 @@ public final class MineStockExporter {
                     count++;
                 }
             }
-            Files.write(EXPORT_FILE, sb.toString().getBytes(StandardCharsets.UTF_8));
+            Files.write(exportFile, sb.toString().getBytes(StandardCharsets.UTF_8));
             Message.log("§e[备份] §a✔ MineStock 持仓数据已导出 §7(" + count + " 条)");
             return true;
         } catch (Exception e) {
@@ -75,7 +84,8 @@ public final class MineStockExporter {
 
     /** 回档后导入：清空 holdings 表并写回 backup.json 的数据。返回是否导入了数据。 */
     public static boolean restore() {
-        if (!Files.exists(EXPORT_FILE)) return false;
+        Path exportFile = exportFile();
+        if (!Files.exists(exportFile)) return false;
         try {
             Class.forName(H2_DRIVER);
             int count = 0;
@@ -85,7 +95,7 @@ public final class MineStockExporter {
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO holdings (player_uuid, stock_code, amount, avg_cost, last_price, last_fetched) "
                                 + "VALUES (?,?,?,?,?,?)");
-                     BufferedReader r = Files.newBufferedReader(EXPORT_FILE, StandardCharsets.UTF_8)) {
+                     BufferedReader r = Files.newBufferedReader(exportFile, StandardCharsets.UTF_8)) {
                     String line;
                     while ((line = r.readLine()) != null) {
                         line = line.trim();

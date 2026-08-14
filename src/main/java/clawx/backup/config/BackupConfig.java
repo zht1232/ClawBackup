@@ -268,7 +268,7 @@ public class BackupConfig {
 
     public Path getResolvedBackupPath() {
         Path p = Paths.get(backupPath);
-        return p.isAbsolute() ? p.normalize() : Paths.get(".").resolve(p).normalize();
+        return p.isAbsolute() ? p.normalize() : ClawBackup.getServerRoot().resolve(p).normalize();
     }
 
     private static int clamp(int val, int min, int max) {

@@ -203,7 +203,7 @@ public class ClawBackup extends JavaPlugin {
 
     /** 检查并执行待回档任务（在服务器关闭、世界卸载后执行） */
     private void checkPendingRestore() {
-        java.nio.file.Path markerFile = java.nio.file.Paths.get("plugins/ClawBackup/pending-restore.txt");
+        java.nio.file.Path markerFile = getServerRoot().resolve("plugins/ClawBackup/pending-restore.txt");
         if (!java.nio.file.Files.exists(markerFile)) return;
 
         try {
@@ -251,7 +251,7 @@ public class ClawBackup extends JavaPlugin {
                 // QuickShop：检测导出 zip（quickshop export 生成 export-<时间戳>.zip）。
                 // 实测 recovery 会查找固定的 recovery.zip；故取最新导出复制为 recovery.zip 再执行恢复。
                 // recovery 会覆盖现有商店，是否自动执行由 restore.auto-restore-quickshop 控制。
-                java.nio.file.Path qsDir = java.nio.file.Paths.get("plugins/QuickShop-Hikari");
+                java.nio.file.Path qsDir = getServerRoot().resolve("plugins/QuickShop-Hikari");
                 if (java.nio.file.Files.isDirectory(qsDir)) {
                     java.nio.file.Path newestZip = null;
                     long newestTime = -1;
@@ -283,7 +283,7 @@ public class ClawBackup extends JavaPlugin {
                 }
             }
             if (!postCommands.isEmpty()) {
-                java.nio.file.Path cmdFile = java.nio.file.Paths.get("plugins/ClawBackup/post-restore-commands.txt");
+                java.nio.file.Path cmdFile = getServerRoot().resolve("plugins/ClawBackup/post-restore-commands.txt");
                 java.nio.file.Files.write(cmdFile, postCommands, java.nio.charset.StandardCharsets.UTF_8);
                 Message.log("§e[ClawBackup] §7已写入回档后命令，启动后自动执行");
             }
@@ -329,7 +329,7 @@ public class ClawBackup extends JavaPlugin {
 
     /** 检查并执行回档后命令（服务器重启后） */
     private void checkAndExecutePostRestoreCommands() {
-        java.nio.file.Path markerFile = java.nio.file.Paths.get("plugins/ClawBackup/post-restore-commands.txt");
+        java.nio.file.Path markerFile = getServerRoot().resolve("plugins/ClawBackup/post-restore-commands.txt");
         if (!java.nio.file.Files.exists(markerFile)) return;
 
         // 进入回档后恢复窗口：期间禁止触发任何备份，避免覆盖刚恢复的数据
@@ -376,7 +376,7 @@ public class ClawBackup extends JavaPlugin {
 
             // 确保 QuickShop 自动恢复命令存在（多一层保障：即使回档流程未生成该命令也会补上）
             if (config.isAutoHookPlugins() && config.isAutoRestoreQuickshop()) {
-                java.nio.file.Path qsDir = java.nio.file.Paths.get("plugins/QuickShop-Hikari");
+                java.nio.file.Path qsDir = getServerRoot().resolve("plugins/QuickShop-Hikari");
                 if (java.nio.file.Files.isDirectory(qsDir)) {
                     java.nio.file.Path newestZip = null;
                     long newestTime = -1;
@@ -490,6 +490,16 @@ public class ClawBackup extends JavaPlugin {
     /** 检测是否 Paper 系列（包含 getTPS 方法） */
     public static boolean isPaperBased() {
         return detectServerType().matches("Paper|Purpur|Pufferfish|Folia");
+    }
+
+    /**
+     * 服务器根目录（绝对路径）。
+     * <p>
+     * 通过 Bukkit API 获取世界容器目录，不依赖进程工作目录——
+     * 适配面板/守护进程/脚本等任意启动方式（社区部署环境各异）。
+     */
+    public static java.nio.file.Path getServerRoot() {
+        return Bukkit.getWorldContainer().toPath().normalize();
     }
 
     public static ClawBackup getInstance() {
