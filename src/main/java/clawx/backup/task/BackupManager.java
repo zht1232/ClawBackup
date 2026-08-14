@@ -475,9 +475,12 @@ public class BackupManager {
                 });
             }
 
-            // sender 通知
+            // sender 通知（若 sender 是玩家且已广播，跳过重复的"备份完成"行，避免弹两次）
             if (sender != null) {
-                sender.sendMessage(Message.prefix("§a✅ 备份完成! §8[§7" + sizeStr + " §8| §7" + timeStr + "§8]"));
+                boolean alreadyBroadcast = config.isNotifyPlayers() && sender instanceof org.bukkit.entity.Player;
+                if (!alreadyBroadcast) {
+                    sender.sendMessage(Message.prefix("§a✅ 备份完成! §8[§7" + sizeStr + " §8| §7" + timeStr + "§8]"));
+                }
                 sender.sendMessage(Message.prefix("§7文件: §f" + zipFile.getFileName()));
                 if (totalMissing > 0)
                     sender.sendMessage(Message.prefix("§6⚠ 有 " + totalMissing + " 个文件未备份（详见控制台）"));

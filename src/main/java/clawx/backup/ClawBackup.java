@@ -122,6 +122,7 @@ public class ClawBackup extends JavaPlugin {
 
         // 6. 检查备份目录
         Message.log("§e[ClawBackup] §f[6/7] §7检查备份目录...");
+        Message.log("§e[ClawBackup] §f  服务器根目录: §7" + getServerRoot());
         File backupDir = config.getResolvedBackupPath().toFile();
         if (!backupDir.exists()) {
             backupDir.mkdirs();
@@ -497,9 +498,13 @@ public class ClawBackup extends JavaPlugin {
      * <p>
      * 通过 Bukkit API 获取世界容器目录，不依赖进程工作目录——
      * 适配面板/守护进程/脚本等任意启动方式（社区部署环境各异）。
+     * <p>
+     * 注意：必须 toAbsolutePath()。某些核心上 getWorldContainer() 返回
+     * 相对路径（如 "."），normalize() 后会变成空路径，导致回档时
+     * target.startsWith(serverRoot) 恒为 false、所有文件被误判为不安全路径而跳过。
      */
     public static java.nio.file.Path getServerRoot() {
-        return Bukkit.getWorldContainer().toPath().normalize();
+        return Bukkit.getWorldContainer().toPath().toAbsolutePath().normalize();
     }
 
     public static ClawBackup getInstance() {
