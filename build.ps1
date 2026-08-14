@@ -40,6 +40,13 @@ if (-not (Test-Path $H2Jar)) {
     New-Item -ItemType Directory -Force -Path $LibsDir | Out-Null
     Invoke-WebRequest -Uri "https://repo1.maven.org/maven2/com/h2database/h2/2.2.224/h2-2.2.224.jar" -OutFile $H2Jar -UseBasicParsing
 }
+# SQLite JDBC driver (generic SQLite hot-backup via official VACUUM INTO)
+$SqliteJar = Join-Path $LibsDir "sqlite-jdbc-3.45.3.0.jar"
+if (-not (Test-Path $SqliteJar)) {
+    Write-Host "[deps] Downloading sqlite-jdbc-3.45.3.0.jar ..."
+    New-Item -ItemType Directory -Force -Path $LibsDir | Out-Null
+    Invoke-WebRequest -Uri "https://repo1.maven.org/maven2/org/xerial/sqlite-jdbc/3.45.3.0/sqlite-jdbc-3.45.3.0.jar" -OutFile $SqliteJar -UseBasicParsing
+}
 
 # ===== Read version from plugin.yml =====
 $PluginYml = Join-Path $ResDir "plugin.yml"
@@ -51,7 +58,9 @@ $JarName = "ClawBackup-$Version.jar"
 Write-Host "==== ClawBackup build v$Version ===="
 
 # 1. Compile (use javac @argfile to avoid Windows command-line length limits)
-Write-Host "[1/4] Compiling (Java 8 bytecode)..."
+# 注意：本插件依赖 Paper 1.20.1+ 的区域调度 API（Java 17 字节码），
+# 不能再用 --release 8（会报 "class file has wrong version 61.0"），必须 target 17+。
+Write-Host "[1/4] Compiling (Java 17 bytecode)..."
 if (-not (Test-Path $LibrariesDir)) { throw "Libraries dir not found: $LibrariesDir" }
 $AllJars = @(Get-ChildItem -Path $LibrariesDir -Recurse -Filter *.jar | ForEach-Object { $_.FullName })
 if (Test-Path $LibsDir) {
@@ -71,7 +80,7 @@ New-Item -ItemType Directory -Force -Path $ClassesDir | Out-Null
 $Files = @(Get-ChildItem -Path $SrcDir -Recurse -Filter *.java | ForEach-Object { $_.FullName })
 if ($Files.Count -eq 0) { throw "No .java files found under src/main/java" }
 $ArgFile = Join-Path $BuildDir "javac.args"
-$ArgLines = @("--release", "8", "-cp", $Cp, "-d", $ClassesDir, "-encoding", "UTF-8") + @($Files)
+$ArgLines = @("--release", "17", "-cp", $Cp, "-d", $ClassesDir, "-encoding", "UTF-8") + @($Files)
 $ArgLines | Out-File -FilePath $ArgFile -Encoding ascii
 javac "@$ArgFile"
 if ($LASTEXITCODE -ne 0) { throw "Compile failed (exit=$LASTEXITCODE)" }
@@ -93,6 +102,19 @@ if (Test-Path $LibsDir) {
     Get-ChildItem -Path $ClassesDir -Recurse -Include *.SF,*.RSA,*.DSA -ErrorAction SilentlyContinue | Remove-Item -Force
     # Drop bundled META-INF so a clean manifest is regenerated
     Remove-Item -Recurse -Force (Join-Path $ClassesDir "META-INF") -ErrorAction SilentlyContinue
+    # Slim down sqlite-jdbc native libs: keep Windows (all arch) + Linux x86_64 only
+    $NativeRoot = Join-Path $ClassesDir "org\sqlite\native"
+    if (Test-Path $NativeRoot) {
+        Get-ChildItem -Path $NativeRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "Windows" -and $_.Name -ne "Linux" } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        $LinuxDir = Join-Path $NativeRoot "Linux"
+        if (Test-Path $LinuxDir) {
+            Get-ChildItem -Path $LinuxDir -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -ne "x86_64" } |
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 $JarTmp = Join-Path $BuildDir $JarName
 if (Test-Path $JarTmp) { Remove-Item -Force $JarTmp }

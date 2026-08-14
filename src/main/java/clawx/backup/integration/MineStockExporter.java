@@ -30,7 +30,7 @@ public final class MineStockExporter {
     private static final String DB_FILE = "plugins/MineStock/data/minestock";
     private static final Path EXPORT_FILE = Paths.get("plugins", "MineStock", "backup.json");
     private static final String JDBC_URL =
-            "jdbc:h2:file:./plugins/MineStock/data/minestock;MODE=MySQL;AUTO_SERVER=TRUE;USER=sa";
+            "jdbc:h2:file:./plugins/MineStock/data/minestock;MODE=MySQL;AUTO_SERVER=TRUE";
     private static final String H2_DRIVER = "org.h2.Driver";
 
     private MineStockExporter() {

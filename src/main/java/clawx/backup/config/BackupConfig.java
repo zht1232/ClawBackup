@@ -92,6 +92,10 @@ public class BackupConfig {
     private boolean h2BackupEnabled = true;
     private List<String> h2BackupExcluded = Collections.emptyList();
 
+    // ==== 通用 SQLite 数据库热备份 ====
+    private boolean sqliteBackupEnabled = true;
+    private List<String> sqliteBackupExcluded = Collections.emptyList();
+
     // ==== 云备份上传 ====
     private boolean cloudBackupEnabled = false;
     private boolean githubEnabled = false;
@@ -221,6 +225,10 @@ public class BackupConfig {
         h2BackupEnabled = config.getBoolean("h2-backup.enabled", h2BackupEnabled);
         h2BackupExcluded = config.getStringList("h2-backup.excluded");
 
+        // 通用 SQLite 热备份
+        sqliteBackupEnabled = config.getBoolean("sqlite-backup.enabled", sqliteBackupEnabled);
+        sqliteBackupExcluded = config.getStringList("sqlite-backup.excluded");
+
         // 云备份上传
         cloudBackupEnabled = config.getBoolean("cloud-backup.enabled", cloudBackupEnabled);
         githubEnabled = config.getBoolean("cloud-backup.github.enabled", githubEnabled);
@@ -321,6 +329,10 @@ public class BackupConfig {
     // ===== 通用 H2 兜底备份 =====
     public boolean isH2BackupEnabled() { return h2BackupEnabled; }
     public List<String> getH2BackupExcluded() { return h2BackupExcluded; }
+
+    // ===== 通用 SQLite 热备份 =====
+    public boolean isSqliteBackupEnabled() { return sqliteBackupEnabled; }
+    public List<String> getSqliteBackupExcluded() { return sqliteBackupExcluded; }
 
     // ===== 云备份上传 =====
     public boolean isCloudBackupEnabled() { return cloudBackupEnabled; }

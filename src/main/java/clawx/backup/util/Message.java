@@ -8,7 +8,9 @@ public class Message {
 
     public static void log(String message) {
         // 主线程用控制台 sender（保留颜色）；异步线程改用 logger（线程安全）并去除颜色码避免乱码
-        if (Bukkit.isPrimaryThread()) {
+        // 注意：Folia 没有主线程，Bukkit.isPrimaryThread() 会抛 UnsupportedOperationException，
+        // 因此统一走 SchedulerUtil.isPrimaryThread()（内部已捕获该异常，Folia 上回退为 false）。
+        if (SchedulerUtil.isPrimaryThread()) {
             Bukkit.getConsoleSender().sendMessage(message);
         } else {
             Bukkit.getLogger().info(stripColor(message));

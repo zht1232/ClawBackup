@@ -16,7 +16,9 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 通用 H2 数据库兜底备份。
@@ -35,12 +37,24 @@ public final class H2BackupExporter {
     private static final String PREFIX = "h2backup-";
     private static final String SUFFIX = ".sql";
 
+    // 本次备份中 SCRIPT TO 导出成功的 .mv.db（绝对路径），供备份汇总判断「已覆盖」
+    private static final Set<Path> exported = new HashSet<>();
+    // 尝试连接但失败的 .mv.db
+    private static final Set<Path> failedDbs = new HashSet<>();
+
     private H2BackupExporter() {
+    }
+
+    /** 该 H2 库是否已被本次备份的 SCRIPT TO 成功导出 */
+    public static boolean isExported(Path file) {
+        return exported.contains(file.toAbsolutePath().normalize());
     }
 
     /** 备份前导出：扫描被锁的 H2 库，能连的用 SCRIPT TO 导出为 SQL。返回导出成功数。 */
     public static int export(BackupConfig config) {
         if (!config.isH2BackupEnabled()) return 0;
+        exported.clear();
+        failedDbs.clear();
         List<Path> locked = findLockedH2Dbs();
         if (locked.isEmpty()) return 0;
         int ok = 0;
@@ -55,22 +69,23 @@ public final class H2BackupExporter {
                 Path sql = dir.resolve(PREFIX + dbName + SUFFIX);
                 Files.deleteIfExists(sql);
                 String sqlPath = sql.toAbsolutePath().normalize().toString().replace('\\', '/');
-                String url = "jdbc:h2:file:" + dbUrlBase(db) + ";AUTO_SERVER=TRUE;USER=sa";
+                String url = "jdbc:h2:file:" + dbUrlBase(db) + ";AUTO_SERVER=TRUE";
                 try (Connection conn = DriverManager.getConnection(url);
                      Statement st = conn.createStatement()) {
-                    st.execute("SCRIPT TO '" + sqlPath + "'");
+                    st.execute("SCRIPT TO '" + sqlQuote(sqlPath) + "'");
                 }
+                exported.add(db.toAbsolutePath().normalize());
                 ok++;
-                Message.log("§e[备份] §a✔ H2 兜底导出: §7" + db.toString().replace('\\', '/'));
             } catch (Exception e) {
+                failedDbs.add(db.toAbsolutePath().normalize());
                 failed.add(db.getFileName().toString());
             }
         }
         if (ok > 0) {
-            Message.log("§e[备份] §a✔ 通用 H2 兜底导出完成 §7(" + ok + " 个库)");
+            Message.log("§e[备份] §a✔ H2 兜底导出 §7(" + ok + " 个库)");
         }
         if (!failed.isEmpty()) {
-            Message.log("§e[备份] §6◌ H2 库无法连接已跳过 §7(" + failed.size() + "): "
+            Message.log("§e[备份] §6⚠ H2 跳过 §7" + failed.size() + " 个: §7"
                     + String.join(", ", failed));
         }
         return ok;
@@ -103,21 +118,20 @@ public final class H2BackupExporter {
             try {
                 Class.forName(H2_DRIVER);
                 String dirUrl = sql.getParent().toAbsolutePath().normalize().toString().replace('\\', '/');
-                String url = "jdbc:h2:file:" + dirUrl + "/" + dbName + ";AUTO_SERVER=TRUE;USER=sa";
+                String url = "jdbc:h2:file:" + dirUrl + "/" + dbName + ";AUTO_SERVER=TRUE";
                 String sqlPath = sql.toAbsolutePath().normalize().toString().replace('\\', '/');
                 try (Connection conn = DriverManager.getConnection(url);
                      Statement st = conn.createStatement()) {
                     // 回档后目标库可能是插件刚创建的空库，先清空再重建，避免表已存在冲突
                     st.execute("DROP ALL OBJECTS");
-                    st.execute("RUNSCRIPT FROM '" + sqlPath + "'");
+                    st.execute("RUNSCRIPT FROM '" + sqlQuote(sqlPath) + "'");
                 }
                 ok++;
-                Message.log("§e[回档] §a✔ H2 兜底恢复: §7" + sql.toString().replace('\\', '/'));
             } catch (Exception e) {
-                Message.log("§c[回档] §4H2 兜底恢复失败 §7" + sql.getFileName() + " §8(" + e.getMessage() + ")");
+                Message.log("§c[回档] §4H2 恢复失败 §7" + sql.getFileName());
             }
         }
-        Message.log("§e[回档] §a✔ 通用 H2 兜底恢复完成 §7(" + ok + "/" + sqls.size() + " 个库)");
+        Message.log("§e[回档] §a✔ H2 兜底恢复 §7(" + ok + "/" + sqls.size() + " 个库)");
         return ok;
     }
 
@@ -125,6 +139,11 @@ public final class H2BackupExporter {
     private static String dbUrlBase(Path db) {
         String abs = db.toAbsolutePath().normalize().toString();
         return abs.substring(0, abs.length() - ".mv.db".length()).replace('\\', '/');
+    }
+
+    /** 转义 SQL 字符串字面量中的单引号，避免路径破坏 SCRIPT TO / RUNSCRIPT FROM 语句 */
+    private static String sqlQuote(String s) {
+        return s.replace("'", "''");
     }
 
     /** 是否排除该库 */

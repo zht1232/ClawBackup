@@ -5,6 +5,7 @@ import clawx.backup.config.BackupConfig;
 import clawx.backup.integration.CustomNameplatesExporter;
 import clawx.backup.integration.H2BackupExporter;
 import clawx.backup.integration.MineStockExporter;
+import clawx.backup.integration.SqliteBackupExporter;
 import clawx.backup.task.BackupManager;
 import clawx.backup.task.BackupScheduler;
 import clawx.backup.task.PlayerTracker;
@@ -82,7 +83,7 @@ public class ClawBackup extends JavaPlugin {
         Message.log("§e[ClawBackup] §f==================================");
         Message.log("§e[ClawBackup] §f       🐾 ClawBackup v" + getDescription().getVersion());
         Message.log("§e[ClawBackup] §f       开源服务器备份插件");
-        Message.log("§e[ClawBackup] §f       兼容 Paper/Purpur/Folia 1.16-26.2");
+        Message.log("§e[ClawBackup] §f       兼容 Paper/Purpur/Folia 1.20.1-26.2");
         Message.log("§e[ClawBackup] §f==================================");
 
         // 1. 加载配置
@@ -224,6 +225,13 @@ public class ClawBackup extends JavaPlugin {
                 return;
             }
 
+            // SQLite 数据库：此刻所有插件已被禁用、库文件无占用，
+            // 直接复制 VACUUM INTO 快照覆盖回原 .db（比启动后逐表复制更完整可靠）。
+            // 复制失败的残留快照由下次启动的 SqliteBackupExporter.restore() 兜底。
+            if (config.isSqliteBackupEnabled()) {
+                SqliteBackupExporter.restoreByCopy();
+            }
+
             // 写入回档后命令标记文件（下次启动时执行）
             java.util.List<String> postCommands = new java.util.ArrayList<>(config.getPostRestoreCommands());
             if (config.isAutoHookPlugins()) {
@@ -332,7 +340,7 @@ public class ClawBackup extends JavaPlugin {
         // 回档后 CustomNameplates 数据导入（延迟异步执行，等待插件就绪后写回 H2）
         if (config.isAutoHookPlugins() && CustomNameplatesExporter.isAvailable()) {
             SchedulerUtil.runAsync(this, () -> {
-                try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
                 CustomNameplatesExporter.restore();
             });
         }
@@ -340,7 +348,7 @@ public class ClawBackup extends JavaPlugin {
         // 回档后 MineStock 数据导入（延迟异步执行，等待 MineStock 就绪后写回 H2）
         if (config.isAutoHookPlugins() && MineStockExporter.isAvailable()) {
             SchedulerUtil.runAsync(this, () -> {
-                try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
                 MineStockExporter.restore();
             });
         }
@@ -348,8 +356,16 @@ public class ClawBackup extends JavaPlugin {
         // 回档后通用 H2 兜底恢复（延迟异步执行，扫描 h2backup-*.sql 并 RUNSCRIPT 重建）
         if (config.isH2BackupEnabled()) {
             SchedulerUtil.runAsync(this, () -> {
-                try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
                 H2BackupExporter.restore();
+            });
+        }
+
+        // 回档后通用 SQLite 热备份恢复（延迟异步执行，扫描 sqlitebackup-* 覆盖回原路径）
+        if (config.isSqliteBackupEnabled()) {
+            SchedulerUtil.runAsync(this, () -> {
+                try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+                SqliteBackupExporter.restore();
             });
         }
 

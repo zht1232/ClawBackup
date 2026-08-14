@@ -7,6 +7,7 @@ import clawx.backup.integration.CustomNameplatesExporter;
 import clawx.backup.integration.H2BackupExporter;
 import clawx.backup.integration.MineStockExporter;
 import clawx.backup.integration.NotificationManager;
+import clawx.backup.integration.SqliteBackupExporter;
 import clawx.backup.util.Message;
 import clawx.backup.util.SchedulerUtil;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
@@ -140,16 +141,15 @@ public class BackupManager {
         }
 
         String timestamp = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
-        String backupName = "backup_" + trigger + "_" + timestamp;
+        String safeTrigger = sanitizeTrigger(trigger);
+        String backupName = "backup_" + safeTrigger + "_" + timestamp;
         Path zipFile = backupDir.resolve(backupName + ".zip");
 
         final ThreadSafeSender safeSender = (sender != null) ? new ThreadSafeSender(sender, plugin) : null;
 
         // 倒计时由 supplyAsync 内的递减循环统一广播（N..1），此处不重复发"将在 N 秒后"提示
 
-        Message.log("§e[备份] §f开始备份: §b" + backupName);
-        Message.log("§e[备份] §f触发方式: §7" + trigger);
-        Message.log("§e[备份] §f目标文件: §7" + zipFile);
+        Message.log("§e[备份] §f开始: §b" + backupName + " §7(触发: §f" + trigger + "§7) §f→ §7" + zipFile);
 
         // 面向控制台的进度
         if (safeSender == null && config.isShowProgress()) startProgressDisplay();
@@ -345,6 +345,12 @@ public class BackupManager {
                 H2BackupExporter.export(config);
             }
 
+            // 3.10 通用 SQLite 热备份（官方 VACUUM INTO 一致性快照，覆盖所有 SQLite 插件）
+            if (config.isSqliteBackupEnabled()) {
+                setPhase("SQLite 热备份...");
+                SqliteBackupExporter.export(config);
+            }
+
             // 4. 收集文件
             setPhase("统计待备份文件...");
             List<Path> allFiles = collectFiles();
@@ -399,7 +405,6 @@ public class BackupManager {
                     if (isFileLocked(file)) {
                         skippedFiles.add(entryName);
                         fileLockSkipped++;
-                        Message.log("§e[备份] §6⚠ 跳过被锁文件: §7" + entryName);
                         processedFiles.incrementAndGet();
                         continue;
                     }
@@ -420,7 +425,6 @@ public class BackupManager {
                         } else {
                             skippedFiles.add(entryName);
                             fileLockSkipped++;
-                            Message.log("§e[备份] §6⚠ 跳过被锁文件: §7" + entryName);
                         }
                         processedFiles.incrementAndGet();
 
@@ -428,7 +432,6 @@ public class BackupManager {
                         if (entryOpen) { try { zos.closeEntry(); } catch (IOException ignored) {} }
                         skippedFiles.add(entryName);
                         fileLockSkipped++;
-                        Message.log("§e[备份] §6⚠ 跳过被锁文件: §7" + entryName + " §8(" + e.getMessage() + ")");
                         processedFiles.incrementAndGet();
                     }
                 }
@@ -449,27 +452,26 @@ public class BackupManager {
             Message.log("§e[备份] §a==================================");
             Message.log("§e[备份] §a  ✅ 备份完成!");
             Message.log("§e[备份] §f  文件: §7" + zipFile.getFileName());
-            Message.log("§e[备份] §f  大小: §7" + sizeStr + " §8| §7耗时: §7" + timeStr);
+            Message.log("§e[备份] §f  大小: §7" + sizeStr + " §8| §7耗时: §8" + timeStr);
             Message.log("§e[备份] §f  文件数: §7" + processedFiles.get() + "/" + totalFiles.get());
-            if (fileLockSkipped > 0) {
-                Message.log("§e[备份] §6  ⚠ 跳过被锁文件: §7" + fileLockSkipped + " 个");
-                for (String f : skippedFiles) {
-                    Message.log("§e[备份] §6    - §7" + f);
-                }
-            }
             if (tpsPauses > 0)
                 Message.log("§e[备份] §6  ⏸ TPS 暂停次数: §7" + tpsPauses);
             Message.log("§e[备份] §a==================================");
 
-            // 玩家广播
+            // 被锁文件汇总：数据库库分类为「已覆盖/未备份」，非数据库被锁文件单独列出。
+            // 已覆盖的库数据已随备份打包，不再提示为"跳过"。
+            int[] lockStat = reportDatabaseBackupStatus(skippedFiles);
+            int totalMissing = lockStat[2] + lockStat[3];
+
+            // 玩家广播（只报完成 + 未备份警告，不重复"跳过被锁文件"）
             if (config.isNotifyPlayers()) {
                 String finalSize = sizeStr, finalTime = timeStr;
-                int finalSkipped = fileLockSkipped;
+                int finalMissing = totalMissing;
                 SchedulerUtil.runSync(plugin, () -> {
                     Bukkit.broadcastMessage(Message.prefix("§a✅ 备份完成！ §7(§f" + finalSize
                             + " §8| §f" + finalTime + "§7)"));
-                    if (finalSkipped > 0)
-                        Bukkit.broadcastMessage(Message.prefix("§6⚠ 跳过 " + finalSkipped + " 个被锁文件"));
+                    if (finalMissing > 0)
+                        Bukkit.broadcastMessage(Message.prefix("§6⚠ 有 " + finalMissing + " 个文件未备份，详见控制台"));
                 });
             }
 
@@ -477,8 +479,8 @@ public class BackupManager {
             if (sender != null) {
                 sender.sendMessage(Message.prefix("§a✅ 备份完成! §8[§7" + sizeStr + " §8| §7" + timeStr + "§8]"));
                 sender.sendMessage(Message.prefix("§7文件: §f" + zipFile.getFileName()));
-                if (fileLockSkipped > 0)
-                    sender.sendMessage(Message.prefix("§6⚠ 跳过 " + fileLockSkipped + " 个被锁文件"));
+                if (totalMissing > 0)
+                    sender.sendMessage(Message.prefix("§6⚠ 有 " + totalMissing + " 个文件未备份（详见控制台）"));
                 if (tpsPauses > 0)
                     sender.sendMessage(Message.prefix("§6⏸ TPS 保护暂停 " + tpsPauses + " 次"));
             }
@@ -555,6 +557,19 @@ public class BackupManager {
         } catch (Exception ignored) {}
     }
 
+    /**
+     * 过滤备份名触发源中的非法字符，避免路径分隔符（/、\）或 ".." 造成
+     * 目录穿越、把备份写到备份目录之外。允许字母（含中文）、数字、下划线、点、连字符。
+     */
+    private static String sanitizeTrigger(String trigger) {
+        if (trigger == null) return "backup";
+        String s = trigger.replaceAll("[^\\p{L}\\p{N}_.-]+", "_");
+        // 去除首尾点号，避免 Windows 上被当作隐藏文件或产生 ".." 残留
+        s = s.replaceAll("^\\.+|\\.+$", "");
+        if (s.isEmpty()) s = "backup";
+        return s;
+    }
+
     // ===== 文件收集（含自动发现多世界、排除规则）=====
     private List<Path> collectFiles() {
         List<Path> files = new ArrayList<>();
@@ -568,7 +583,6 @@ public class BackupManager {
 
             if (config.isWorldAutoDiscover()) {
                 // 自动扫描: 查找根目录下所有包含 level.dat 的文件夹 = 世界
-                Message.log("§e[备份] §7  自动发现世界目录...");
                 File rootDir = serverRoot.toFile();
                 File[] entries = rootDir.listFiles(File::isDirectory);
                 if (entries != null) {
@@ -624,29 +638,29 @@ public class BackupManager {
             // 去重后遍历收集（统计本次收集的世界文件数，避免之前“抵消式死算术”的错误日志）
             int worldFilesBefore = files.size();
             for (Path worldDir : worldDirs) {
-                String label = serverRoot.relativize(worldDir).toString();
-                Message.log("§e[备份] §7    收集: §f" + label);
                 collectDirectory(worldDir, files, lowerExclude);
             }
-            Message.log("§e[备份] §7  世界文件数: §f" + (files.size() - worldFilesBefore));
+            Message.log("§e[备份] §7世界: §f" + worldDirs.size() + " 个, §f" + (files.size() - worldFilesBefore) + " 个文件");
         }
 
         if (config.isBackupPlugins()) {
             Path pluginsPath = serverRoot.resolve("plugins");
             if (Files.exists(pluginsPath) && Files.isDirectory(pluginsPath)) {
-                Message.log("§e[备份] §7  收集插件...");
                 File[] pluginEntries = pluginsPath.toFile().listFiles();
                 if (pluginEntries != null) {
                     for (File f : pluginEntries) {
                         if (config.getExcludedPlugins().contains(f.getName())) {
-                            Message.log("§e[备份] §8  排除插件: " + f.getName());
                             continue;
                         }
                         if (f.isDirectory()) {
                             collectDirectory(f.toPath(), files, lowerExclude);
                         } else {
-                            if (!shouldExcludeFile(f.getName(), lowerExclude))
-                                files.add(f.toPath());
+                            if (shouldExcludeFile(f.getName(), lowerExclude)) continue;
+                            // SQLite 原始文件已由 VACUUM INTO 热备份，不再直接复制
+                            if (config.isSqliteBackupEnabled() && SqliteBackupExporter.isBackedUp(f.toPath())) {
+                                continue;
+                            }
+                            files.add(f.toPath());
                         }
                     }
                 }
@@ -660,10 +674,24 @@ public class BackupManager {
         try {
             Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
                 @Override
+                public FileVisitResult preVisitDirectory(Path sub, BasicFileAttributes attrs) {
+                    // 跳过 tmp 临时目录（如 sqlite-jdbc 解压 native 库的目录），
+                    // 避免把运行中被 JVM 加载的 .dll 等打进备份
+                    if (sub.getFileName() != null
+                            && sub.getFileName().toString().equalsIgnoreCase("tmp")) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+                @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     String name = file.getFileName().toString();
                     if (name.equals("session.lock")) return FileVisitResult.CONTINUE;
                     if (shouldExcludeFile(name, excludeTypes)) return FileVisitResult.CONTINUE;
+                    // SQLite 原始文件已由 VACUUM INTO 热备份，不再直接复制（避免冗余/不一致快照）
+                    if (config.isSqliteBackupEnabled() && SqliteBackupExporter.isBackedUp(file)) {
+                        return FileVisitResult.CONTINUE;
+                    }
                     files.add(file);
                     return FileVisitResult.CONTINUE;
                 }
@@ -685,16 +713,40 @@ public class BackupManager {
         return false;
     }
 
-    /** 检测文件是否被其他进程锁定（写入前预检，避免截断残体进入 zip） */
-    private static boolean isFileLocked(Path file) {
+    /**
+     * 检测文件是否应跳过（写入前预检，避免把不一致/截断的数据写进 zip）。
+     * <ul>
+     *   <li>被「其它进程」持有锁（tryLock 返回 null）→ 视为被占用，跳过；</li>
+     *   <li>被「本 JVM 自身」持有锁（OverlappingFileLockException）：
+     *       世界区域文件等已在 save-all flush 后落盘，可安全读取，不跳过；
+     *       但 plugins/ 下的数据库文件（H2/SQLite）运行中不能裸拷贝，仍跳过；</li>
+     *   <li>文件打不开 → 视为被占用，跳过。</li>
+     * </ul>
+     */
+    private boolean isFileLocked(Path file) {
         try (java.nio.channels.FileChannel ch =
                      java.nio.channels.FileChannel.open(file, java.nio.file.StandardOpenOption.READ)) {
-            java.nio.channels.FileLock lock = ch.tryLock(0, Long.MAX_VALUE, true);
-            if (lock == null) return true;
-            lock.release();
-            return false;
+            try {
+                java.nio.channels.FileLock lock = ch.tryLock(0, Long.MAX_VALUE, true);
+                if (lock == null) return true; // 其它进程持有
+                lock.release();
+                return false;
+            } catch (java.nio.channels.OverlappingFileLockException e) {
+                // 本 JVM 已持有锁：世界文件可安全读取；plugins 下的数据库文件跳过（交给导出器）
+                return isUnderPlugins(file);
+            }
         } catch (Exception e) {
             return true; // 打不开或读取被拒 → 视为锁定
+        }
+    }
+
+    /** 路径是否位于 plugins/ 目录下（用于区分世界文件与插件数据库文件） */
+    private static boolean isUnderPlugins(Path file) {
+        try {
+            Path plugins = Paths.get("plugins").toAbsolutePath().normalize();
+            return file.toAbsolutePath().normalize().startsWith(plugins);
+        } catch (Exception e) {
+            return true; // 判定失败时保守跳过，避免误拷贝运行中的库
         }
     }
 
@@ -774,6 +826,103 @@ public class BackupManager {
         return deleted;
     }
 
+    /**
+     * 被锁文件汇总：数据库库分类为「已覆盖/未备份」，非数据库被锁文件单独列出。
+     * 已覆盖的库（数据已随备份打包）不再提示为"跳过"。
+     * 返回统计 int[]{dbTotal, dbCovered, dbMissing, otherLocked}。
+     */
+    private int[] reportDatabaseBackupStatus(List<String> skippedFiles) {
+        int[] stat = new int[]{0, 0, 0, 0};
+        if (skippedFiles == null || skippedFiles.isEmpty()) return stat;
+
+        List<String> dbEntries = new ArrayList<>();
+        List<String> otherLocked = new ArrayList<>();
+        for (String entry : skippedFiles) {
+            String lower = entry.toLowerCase();
+            if (lower.endsWith(".mv.db") || lower.endsWith(".db") || lower.endsWith(".sqlite")
+                    || lower.endsWith(".sqlite3") || lower.endsWith(".db3")) {
+                dbEntries.add(entry);
+            } else {
+                otherLocked.add(entry);
+            }
+        }
+
+        int dbTotal = dbEntries.size();
+        stat[0] = dbTotal;
+        int covered = 0;
+        List<String> missing = new ArrayList<>();
+        Path serverRoot = Paths.get(".").toAbsolutePath().normalize();
+        for (String entry : dbEntries) {
+            Path abs = serverRoot.resolve(entry).normalize();
+            if (H2BackupExporter.isExported(abs)
+                    || SqliteBackupExporter.isBackedUp(abs)
+                    || officialExportReason(entry) != null) {
+                covered++;
+            } else {
+                missing.add(entry);
+            }
+        }
+        stat[1] = covered;
+        stat[2] = dbTotal - covered;
+        stat[3] = otherLocked.size();
+
+        if (dbTotal == 0 && otherLocked.isEmpty()) return stat;
+
+        Message.log("§e[备份] §f┌─ §b文件跳过汇总 §7(被锁未能直接打包) ──────────────────");
+        if (dbTotal > 0) {
+            if (stat[2] == 0) {
+                Message.log("§e[备份] §a│ ✅ 数据库: §f" + covered + "/" + dbTotal
+                        + " §a个库已覆盖（数据已随备份打包）");
+            } else {
+                Message.log("§e[备份] §6│ ⚠ 数据库: §f" + covered + "/" + dbTotal
+                        + " §a已覆盖 §8| §c" + stat[2] + " §c个未备份:");
+                for (String entry : missing) {
+                    Message.log("§e[备份] §7│   • §f" + entry);
+                }
+                Message.log("§e[备份] §6│   建议: 给该库开启 AUTO_SERVER=TRUE / 迁移 MySQL / 插件自带导出");
+            }
+        }
+        if (!otherLocked.isEmpty()) {
+            Message.log("§e[备份] §c│ ❌ 其他被锁文件未打包: §f" + otherLocked.size() + " 个");
+            for (String entry : otherLocked) {
+                Message.log("§e[备份] §7│   • §f" + entry);
+            }
+        }
+        Message.log("§e[备份] §f└─────────────────────────────────────────────");
+        return stat;
+    }
+
+    /** 判断某个被锁的库是否已有官方导出文件覆盖（LuckPerms/QuickShop/CustomNameplates/MineStock） */
+    private static String officialExportReason(String entry) {
+        String path = entry.replace('\\', '/');
+        if (path.contains("LuckPerms") && (Files.exists(Paths.get("plugins/LuckPerms/backup.json.gz"))
+                || Files.exists(Paths.get("plugins/LuckPerms/backup.json"))
+                || Files.exists(Paths.get("plugins/LuckPerms/backup.yml")))) {
+            return "LuckPerms 官方导出 (lp export)";
+        }
+        if (path.contains("QuickShop") && hasQuickShopExport()) {
+            return "QuickShop 官方导出 (quickshop export)";
+        }
+        if (path.contains("CustomNameplates") && Files.exists(Paths.get("plugins/CustomNameplates/backup.json"))) {
+            return "CustomNameplates 官方导出 (API)";
+        }
+        if (path.contains("MineStock") && Files.exists(Paths.get("plugins/MineStock/backup.json"))) {
+            return "MineStock 官方导出 (JDBC)";
+        }
+        return null;
+    }
+
+    /** QuickShop-Hikari 目录下是否存在本次导出的 export-*.zip */
+    private static boolean hasQuickShopExport() {
+        Path qs = Paths.get("plugins/QuickShop-Hikari");
+        if (!Files.isDirectory(qs)) return false;
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(qs, "export-*.zip")) {
+            return ds.iterator().hasNext();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     // 回档时需要跳过的文件（被服务端持锁，直接覆盖会导致文件占用错误）
     private static final Set<String> RESTORE_SKIP_FILES = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList("session.lock", "uid.dat", "level.dat_old", "level.dat_mcr")));
@@ -813,6 +962,9 @@ public class BackupManager {
         ThreadSafeSender safeSender = (sender != null) ? new ThreadSafeSender(sender, plugin) : null;
 
         return CompletableFuture.supplyAsync(() -> {
+            // 跟踪本次准备阶段是否关闭了自动保存、以及是否已下发 /stop（用于 finally 兜底恢复 save-on）
+            final boolean[] saveOff = {false};
+            final boolean[] stopping = {false};
             try {
                 // 1. 广播警告
                 SchedulerUtil.runSync(plugin, () ->
@@ -839,6 +991,7 @@ public class BackupManager {
 
                 // 3. 关闭自动保存 + 保存数据
                 runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "save-off"));
+                saveOff[0] = true;
                 Thread.sleep(300);
                 Message.log("§e[回档] §7正在保存世界数据...");
                 runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "save-all flush"));
@@ -850,7 +1003,19 @@ public class BackupManager {
                 // 故提前逐个禁用，让它们先正常 onDisable 保存，再进入清空/解压阶段。
                 final int[] disabledCount = {0};
                 runSyncAndWait(() -> {
-                    for (org.bukkit.plugin.Plugin p : Bukkit.getPluginManager().getPlugins()) {
+                    // 按"被依赖次数"升序禁用：先禁依赖别人的插件，最后禁 LuckPerms/PlaceholderAPI 等被依赖的
+                    // （避免依赖方 onDisable 访问已禁用插件的 API 报错，减少日志噪音）
+                    java.util.List<org.bukkit.plugin.Plugin> list = new java.util.ArrayList<>(
+                            Arrays.asList(Bukkit.getPluginManager().getPlugins()));
+                    java.util.Map<String, Integer> depCount = new java.util.HashMap<>();
+                    for (org.bukkit.plugin.Plugin p : list) {
+                        for (String d : p.getDescription().getDepend()) depCount.merge(d, 1, Integer::sum);
+                        for (String d : p.getDescription().getSoftDepend()) depCount.merge(d, 1, Integer::sum);
+                    }
+                    list.sort((a, b) -> Integer.compare(
+                            depCount.getOrDefault(a.getName(), 0),
+                            depCount.getOrDefault(b.getName(), 0)));
+                    for (org.bukkit.plugin.Plugin p : list) {
                         if (p == plugin) continue;
                         if (p.isEnabled()) {
                             try {
@@ -899,6 +1064,7 @@ public class BackupManager {
                         safeSender.sendMessage(Message.prefix("§c服务器正在关闭，回档即将执行..."));
                     }
                     runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "stop"));
+                    stopping[0] = true;
 
                     // 等待服务器关闭（onDisable 会执行实际回档）
                     Thread.sleep(30000);
@@ -917,6 +1083,11 @@ public class BackupManager {
                 e.printStackTrace();
                 return new BackupResult(false, e.getMessage(), null);
             } finally {
+                // 兜底恢复自动保存：若准备阶段关了 save-off、但服务器没有真正停机
+                // （手动关服模式或中途异常），必须补回 save-on，否则会一直停用自动保存。
+                if (saveOff[0] && !stopping[0]) {
+                    runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "save-on"));
+                }
                 running.set(false);
             }
         });
@@ -934,6 +1105,7 @@ public class BackupManager {
 
         long count = 0;
         long skipped = 0;
+        long failedFiles = 0;
         List<String> skippedFiles = new ArrayList<>();
 
         // 回档排除列表：直接使用已解析的配置（修复之前手工 YAML 解析
@@ -986,18 +1158,28 @@ public class BackupManager {
                 }
 
                 if (entry.isDirectory()) {
-                    Files.createDirectories(target);
-                } else {
-                    Files.createDirectories(target.getParent());
-                    try (OutputStream os = Files.newOutputStream(target)) {
-                        int read;
-                        while ((read = zis.read(buffer)) != -1) {
-                            os.write(buffer, 0, read);
-                        }
+                    try {
+                        Files.createDirectories(target);
+                    } catch (Exception ex) {
+                        // 目录创建失败：记录后继续，不中断回档
                     }
-                    count++;
+                } else {
+                    try {
+                        Files.createDirectories(target.getParent());
+                        try (OutputStream os = Files.newOutputStream(target)) {
+                            int read;
+                            while ((read = zis.read(buffer)) != -1) {
+                                os.write(buffer, 0, read);
+                            }
+                        }
+                        count++;
+                    } catch (Exception ex) {
+                        // 单个文件被占用（如 JVM 已加载的 DLL、被锁文件）→ 只跳过该文件，不中断整个回档
+                        failedFiles++;
+                        Message.log("§c[回档] §4跳过占用文件: §7" + name);
+                    }
                 }
-                zis.closeEntry();
+                try { zis.closeEntry(); } catch (Exception ignored) {}
             }
         } catch (Exception e) {
             Message.log("§c[回档] §4回档失败: " + e.getMessage());
@@ -1015,6 +1197,9 @@ public class BackupManager {
             for (String f : skippedFiles) {
                 Message.log("§e[回档] §6    - §7" + f);
             }
+        }
+        if (failedFiles > 0) {
+            Message.log("§e[回档] §6  ⚠ " + failedFiles + " 个文件因被占用未能恢复（见上方日志，可手动处理）");
         }
         Message.log("§e[回档] §a==================================");
         Message.log("§e[回档] §a✔ 请启动服务器以完成回档");
@@ -1124,8 +1309,8 @@ public class BackupManager {
     }
 
     private void setPhase(String phase) {
+        // 仅更新进度状态（/cb status 读取），不再打印日志，避免阶段日志刷屏
         this.currentPhase = phase;
-        Message.log("§e[备份] §7▶ " + phase);
     }
 
     // ===== 格式化 =====
@@ -1157,8 +1342,12 @@ public class BackupManager {
         private final ClawBackup plugin;
         ThreadSafeSender(CommandSender d, ClawBackup p) { this.delegate = d; this.plugin = p; }
         void sendMessage(String msg) {
-            if (SchedulerUtil.isPrimaryThread()) delegate.sendMessage(msg);
-            else SchedulerUtil.runSync(plugin, () -> delegate.sendMessage(msg));
+            if (SchedulerUtil.isPrimaryThread()) {
+                delegate.sendMessage(msg);
+            } else if (plugin.isEnabled() && !plugin.isDisabling()) {
+                SchedulerUtil.runSync(plugin, () -> delegate.sendMessage(msg));
+            }
+            // 插件已禁用/服务器关闭中：主线程调度不可用，直接丢弃该消息（避免 IllegalPluginAccessException）
         }
     }
 }
