@@ -23,7 +23,7 @@
 - ☁️ **云备份上传**：备份完成后自动上传（GitHub Release / 百度网盘）
 - 🔔 **告警通知**：备份开始/成功/失败自动通知（邮件 / 飞书 / 钉钉）
 - 🔌 **插件钩子**：自动检测 LuckPerms / QuickShop / CustomNameplates（备份前导出、回档后导入）
-- 🗄️ **数据库文件识别**：自动识别被锁的 H2/SQLite 数据库文件，跳过并列出清单，避免备份到损坏的库
+- 🗄️ **数据库热备份**：SQLite 用 `VACUUM INTO` 一致性快照、H2 用 `SCRIPT TO` 导出、MineStock 用 JDBC 直连；回档后 SQLite 直接复制恢复；备份完成输出「文件跳过汇总」（✅ 已覆盖 / ❌ 未备份）一目了然
 
 ## 支持平台
 
@@ -112,13 +112,15 @@ notify:
 
 ## ⚠️ 注意点
 
-1. **数据库文件热备份限制**：H2/SQLite 数据库（`.mv.db` / `.db` / `.sqlite`）在服务器运行时会被占用，无法热复制（复制运行中的 H2 库也不安全）。ClawBackup 会跳过它们并**在备份日志列出被锁文件清单**（1.4.1+）。处理建议：
-   - LuckPerms / QuickShop / CustomNameplates 已自动导出（数据有快照）
-   - 其他插件可在 `backup.pre-backup-commands` 加导出命令，或迁移 MySQL
+1. **数据库热备份覆盖情况**：被插件锁定的数据库文件无法直接复制，ClawBackup 通过多种方式保证数据进备份：
+   - SQLite（`.db` / `.sqlite`）→ `VACUUM INTO` 一致性快照，回档时直接复制恢复
+   - H2（`.mv.db`）→ 能连上的用 `SCRIPT TO` 导出 SQL（默认排它锁、无 `AUTO_SERVER` 的库连不上）
+   - LuckPerms / QuickShop / CustomNameplates / MineStock → 自动官方导出（数据有快照）
+   - 备份完成时输出「文件跳过汇总」：`✅ 已覆盖`（数据在备份包内）与 `❌ 未备份`（如 ajLeaderboards 这类无导出钩子且锁库的插件，可考虑迁移 MySQL）
 2. **凭据安全**：GitHub token、SMTP 授权码等**只存在你服务器上的 `config.yml`**，不会被提交到仓库（`libs/` 等已 gitignore）
 3. **邮件依赖**：构建时会自动下载 JavaMail 并打进 jar（构建脚本需联网一次）
 4. **123云盘**：无官方开放 API，暂不支持
-5. **最低要求**：仅支持 Paper 1.20.4+ / Purpur / Folia（纯 Spigot 无区域调度 API，不支持）
+5. **最低要求**：仅支持 Paper 1.20.1+ / Purpur / Folia（纯 Spigot 无区域调度 API，不支持；需 Java 17+）
 
 ## 构建
 
@@ -133,7 +135,7 @@ build.bat
 ```
 
 脚本会读取 `plugin.yml` 的版本号，自动下载依赖（JavaMail 等），编译
-（Java 8 字节码）并打包为 `ClawBackup-<版本>.jar` 输出到桌面。编译依赖
+（Java 17 字节码）并打包为 `ClawBackup-<版本>.jar` 输出到桌面。编译依赖
 来自服务器 `libraries/` 目录（Paper API 及其传递依赖），路径可在
 `build.ps1` 顶部配置。
 
