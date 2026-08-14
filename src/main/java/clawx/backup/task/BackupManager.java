@@ -45,6 +45,10 @@ public class BackupManager {
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private CompletableFuture<BackupResult> currentTask = null;
 
+    // 是否正处于「回档准备」阶段（restoreBackup 进行中，区别于普通备份任务）。
+    // 用于 onDisable 关闭时区分：回档准备中不应误报"正在运行的备份任务"。
+    private volatile boolean restoring = false;
+
     // 进度追踪（对外只读）
     private final AtomicLong totalFiles = new AtomicLong(0);
     private final AtomicLong processedFiles = new AtomicLong(0);
@@ -64,6 +68,8 @@ public class BackupManager {
 
     // ===== 公开状态接口（供状态命令读取） =====
     public boolean isRunning() { return running.get(); }
+    /** 是否处于回档准备阶段（区别于普通备份任务） */
+    public boolean isRestoring() { return restoring; }
     public int getProgressPercent() {
         long t = totalFiles.get();
         return t > 0 ? (int)(processedFiles.get() * 100 / t) : 0;
@@ -963,6 +969,7 @@ public class BackupManager {
 
         running.set(true);
         cancelled.set(false);
+        restoring = true;
         ThreadSafeSender safeSender = (sender != null) ? new ThreadSafeSender(sender, plugin) : null;
 
         return CompletableFuture.supplyAsync(() -> {
@@ -1005,6 +1012,7 @@ public class BackupManager {
                 // 实际回档（清空/覆盖 plugins 目录）发生在服务器关闭过程的 onDisable 中，
                 // 此时若其他插件仍在运行（如 Ranking 的定时保存），会在目录被清空时写入失败或数据错乱。
                 // 故提前逐个禁用，让它们先正常 onDisable 保存，再进入清空/解压阶段。
+                Message.log("§e[回档] §6⚠ 即将禁用所有其他插件以执行回档；插件可能打印“运行时禁用”类警告，属正常现象");
                 final int[] disabledCount = {0};
                 runSyncAndWait(() -> {
                     // 按"被依赖次数"升序禁用：先禁依赖别人的插件，最后禁 LuckPerms/PlaceholderAPI 等被依赖的
@@ -1092,6 +1100,7 @@ public class BackupManager {
                 if (saveOff[0] && !stopping[0]) {
                     runSyncAndWait(() -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "save-on"));
                 }
+                restoring = false;
                 running.set(false);
             }
         });

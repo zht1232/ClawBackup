@@ -205,6 +205,12 @@ public class ClawBackup extends JavaPlugin {
     /** 检查并执行待回档任务（在服务器关闭、世界卸载后执行） */
     private void checkPendingRestore() {
         java.nio.file.Path markerFile = getServerRoot().resolve("plugins/ClawBackup/pending-restore.txt");
+        // 回档准备线程在禁用所有插件后才写入标记，可能因插件 onDisable 触发提前关服而尚未写完，
+        // 这里轮询等待标记出现（最多 6 秒），避免因时序竞态读不到标记而漏执行回档。
+        for (int i = 0; i < 30 && !java.nio.file.Files.exists(markerFile); i++) {
+            try { Thread.sleep(200); }
+            catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
+        }
         if (!java.nio.file.Files.exists(markerFile)) return;
 
         try {
@@ -444,16 +450,27 @@ public class ClawBackup extends JavaPlugin {
     private void shutdownBackupManager() {
         if (backupManager != null) {
             if (backupManager.isRunning()) {
-                Message.log("§e[ClawBackup] §e⚠ 检测到正在运行的备份任务，尝试安全中断...");
-                backupManager.cancel();
-                // 最多等待 5 秒让异步任务退出
-                int waited = 0;
-                while (backupManager.isRunning() && waited < 50) {
-                    try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
-                    waited++;
-                }
-                if (backupManager.isRunning()) {
-                    Message.log("§e[ClawBackup] §e⚠ 备份任务未能在 5 秒内终止，已强制中断");
+                if (backupManager.isRestoring()) {
+                    // 正处于回档准备阶段（禁用插件→写标记），不是普通备份任务。
+                    // 等待其写完回档标记，供 checkPendingRestore 读取后执行实际回档。
+                    Message.log("§e[ClawBackup] §7等待回档准备完成...");
+                    int waited = 0;
+                    while (backupManager.isRunning() && waited < 50) {
+                        try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+                        waited++;
+                    }
+                } else {
+                    Message.log("§e[ClawBackup] §e⚠ 检测到正在运行的备份任务，尝试安全中断...");
+                    backupManager.cancel();
+                    // 最多等待 5 秒让异步任务退出
+                    int waited = 0;
+                    while (backupManager.isRunning() && waited < 50) {
+                        try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+                        waited++;
+                    }
+                    if (backupManager.isRunning()) {
+                        Message.log("§e[ClawBackup] §e⚠ 备份任务未能在 5 秒内终止，已强制中断");
+                    }
                 }
             }
         }
