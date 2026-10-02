@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 /**
  * 通用 H2 数据库兜底备份。
@@ -53,14 +54,20 @@ public final class H2BackupExporter {
 
     /** 备份前导出：扫描被锁的 H2 库，能连的用 SCRIPT TO 导出为 SQL。返回导出成功数。 */
     public static int export(BackupConfig config) {
-        if (!config.isH2BackupEnabled()) return 0;
+        return export(config, null);
+    }
+
+    /** 备份前导出，并在每个数据库前执行可选的负载检查。 */
+    public static int export(BackupConfig config, Runnable checkpoint) {
         exported.clear();
         failedDbs.clear();
-        List<Path> locked = findLockedH2Dbs();
+        if (!config.isH2BackupEnabled() || !config.isBackupPlugins()) return 0;
+        List<Path> locked = findLockedH2Dbs(config);
         if (locked.isEmpty()) return 0;
         int ok = 0;
         List<String> failed = new ArrayList<>();
         for (Path db : locked) {
+            if (checkpoint != null) checkpoint.run();
             if (isExcluded(config, db)) continue;
             try {
                 Class.forName(H2_DRIVER);
@@ -78,6 +85,7 @@ public final class H2BackupExporter {
                 exported.add(db.toAbsolutePath().normalize());
                 ok++;
             } catch (Exception e) {
+                if (e instanceof CancellationException) throw (CancellationException) e;
                 failedDbs.add(db.toAbsolutePath().normalize());
                 failed.add(db.getFileName().toString());
             }
@@ -93,7 +101,8 @@ public final class H2BackupExporter {
     }
 
     /** 回档后导入：扫描所有 h2backup-*.sql 并 RUNSCRIPT 恢复。返回恢复成功数。 */
-    public static int restore() {
+    public static int restore(BackupConfig config) {
+        if (!config.isH2BackupEnabled() || !config.isBackupPlugins()) return 0;
         List<Path> sqls = new ArrayList<>();
         Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (Files.isDirectory(plugins)) {
@@ -102,7 +111,8 @@ public final class H2BackupExporter {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         String name = file.getFileName().toString();
-                        if (name.startsWith(PREFIX) && name.endsWith(SUFFIX)) {
+                        if (name.startsWith(PREFIX) && name.endsWith(SUFFIX)
+                                && DatabaseBackupScope.includesForRestore(config, file)) {
                             sqls.add(file);
                         }
                         return FileVisitResult.CONTINUE;
@@ -162,7 +172,7 @@ public final class H2BackupExporter {
     }
 
     /** 扫描 plugins/ 下被锁定的 .mv.db（未被锁的会正常打包，无需导出） */
-    private static List<Path> findLockedH2Dbs() {
+    private static List<Path> findLockedH2Dbs(BackupConfig config) {
         List<Path> result = new ArrayList<>();
         Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (!Files.isDirectory(plugins)) return result;
@@ -170,7 +180,9 @@ public final class H2BackupExporter {
             Files.walkFileTree(plugins, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (file.getFileName().toString().endsWith(".mv.db") && isFileLocked(file)) {
+                    String name = file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                    if (name.endsWith(".mv.db") && DatabaseBackupScope.includes(config, file)
+                            && isFileLocked(file)) {
                         result.add(file);
                     }
                     return FileVisitResult.CONTINUE;

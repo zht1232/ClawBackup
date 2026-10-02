@@ -3,6 +3,7 @@ package clawx.backup;
 import clawx.backup.command.BackupCommand;
 import clawx.backup.config.BackupConfig;
 import clawx.backup.integration.CustomNameplatesExporter;
+import clawx.backup.integration.ExternalDatabaseBackup;
 import clawx.backup.integration.H2BackupExporter;
 import clawx.backup.integration.MineStockExporter;
 import clawx.backup.integration.SqliteBackupExporter;
@@ -226,7 +227,10 @@ public class ClawBackup extends JavaPlugin {
 
             // 执行实际回档
             if (backupManager != null) {
-                backupManager.doRestore(zipFilePath);
+                if (!backupManager.doRestore(zipFilePath)) {
+                    Message.log("§c[ClawBackup] §4文件回档未完成，跳过数据库恢复与回档后命令");
+                    return;
+                }
             } else {
                 Message.log("§c[ClawBackup] §4备份管理器不可用，无法执行回档");
                 return;
@@ -236,30 +240,35 @@ public class ClawBackup extends JavaPlugin {
             // 直接复制 VACUUM INTO 快照覆盖回原 .db（比启动后逐表复制更完整可靠）。
             // 复制失败的残留快照由下次启动的 SqliteBackupExporter.restore() 兜底。
             if (config.isSqliteBackupEnabled()) {
-                SqliteBackupExporter.restoreByCopy();
+                SqliteBackupExporter.restoreByCopy(config);
             }
+
+            // 外部数据库：仅执行管理员明确配置的恢复命令；目标插件此时仍处于禁用状态。
+            ExternalDatabaseBackup.restore(config, getServerRoot(), java.nio.file.Paths.get(zipFilePath));
 
             // 写入回档后命令标记文件（下次启动时执行）
             java.util.List<String> postCommands = new java.util.ArrayList<>(config.getPostRestoreCommands());
             if (config.isAutoHookPlugins()) {
                 // LuckPerms：检测导出文件（lp export 默认生成 backup.json.gz，兼容 json/yml）
-                String[] lpExportNames = {
-                        "plugins/LuckPerms/backup.json.gz",
-                        "plugins/LuckPerms/backup.json",
-                        "plugins/LuckPerms/backup.yml"
-                };
-                for (String lpName : lpExportNames) {
-                    if (java.nio.file.Files.exists(java.nio.file.Paths.get(lpName))) {
-                        postCommands.add("lp import backup");
-                        Message.log("§e[ClawBackup] §a✔ 检测到 LuckPerms 导出文件，将在启动后导入");
-                        break;
+                if (shouldRestorePluginData("LuckPerms")) {
+                    String[] lpExportNames = {
+                            "plugins/LuckPerms/backup.json.gz",
+                            "plugins/LuckPerms/backup.json",
+                            "plugins/LuckPerms/backup.yml"
+                    };
+                    for (String lpName : lpExportNames) {
+                        if (java.nio.file.Files.exists(getServerRoot().resolve(lpName))) {
+                            postCommands.add("lp import backup");
+                            Message.log("§e[ClawBackup] §a✔ 检测到 LuckPerms 导出文件，将在启动后导入");
+                            break;
+                        }
                     }
                 }
                 // QuickShop：检测导出 zip（quickshop export 生成 export-<时间戳>.zip）。
                 // 实测 recovery 会查找固定的 recovery.zip；故取最新导出复制为 recovery.zip 再执行恢复。
                 // recovery 会覆盖现有商店，是否自动执行由 restore.auto-restore-quickshop 控制。
                 java.nio.file.Path qsDir = getServerRoot().resolve("plugins/QuickShop-Hikari");
-                if (java.nio.file.Files.isDirectory(qsDir)) {
+                if (shouldRestoreQuickShopData() && java.nio.file.Files.isDirectory(qsDir)) {
                     java.nio.file.Path newestZip = null;
                     long newestTime = -1;
                     try (java.nio.file.DirectoryStream<java.nio.file.Path> ds =
@@ -345,7 +354,8 @@ public class ClawBackup extends JavaPlugin {
         Message.log("§e[ClawBackup] §a✔ 进入回档后恢复窗口（此期间将跳过所有备份）");
 
         // 回档后 CustomNameplates 数据导入（延迟异步执行，等待插件就绪后写回 H2）
-        if (config.isAutoHookPlugins() && CustomNameplatesExporter.isAvailable()) {
+        if (config.isAutoHookPlugins() && shouldRestorePluginData("CustomNameplates")
+                && CustomNameplatesExporter.isAvailable()) {
             SchedulerUtil.runAsync(this, () -> {
                 try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
                 CustomNameplatesExporter.restore();
@@ -353,7 +363,8 @@ public class ClawBackup extends JavaPlugin {
         }
 
         // 回档后 MineStock 数据导入（延迟异步执行，等待 MineStock 就绪后写回 H2）
-        if (config.isAutoHookPlugins() && MineStockExporter.isAvailable()) {
+        if (config.isAutoHookPlugins() && shouldRestorePluginData("MineStock")
+                && MineStockExporter.isAvailable()) {
             SchedulerUtil.runAsync(this, () -> {
                 try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
                 MineStockExporter.restore();
@@ -361,18 +372,18 @@ public class ClawBackup extends JavaPlugin {
         }
 
         // 回档后通用 H2 兜底恢复（延迟异步执行，扫描 h2backup-*.sql 并 RUNSCRIPT 重建）
-        if (config.isH2BackupEnabled()) {
+        if (config.isH2BackupEnabled() && config.isBackupPlugins()) {
             SchedulerUtil.runAsync(this, () -> {
                 try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
-                H2BackupExporter.restore();
+                H2BackupExporter.restore(config);
             });
         }
 
         // 回档后通用 SQLite 热备份恢复（延迟异步执行，扫描 sqlitebackup-* 覆盖回原路径）
-        if (config.isSqliteBackupEnabled()) {
+        if (config.isSqliteBackupEnabled() && config.isBackupPlugins()) {
             SchedulerUtil.runAsync(this, () -> {
                 try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return; }
-                SqliteBackupExporter.restore();
+                SqliteBackupExporter.restore(config);
             });
         }
 
@@ -382,7 +393,8 @@ public class ClawBackup extends JavaPlugin {
             java.nio.file.Files.delete(markerFile);
 
             // 确保 QuickShop 自动恢复命令存在（多一层保障：即使回档流程未生成该命令也会补上）
-            if (config.isAutoHookPlugins() && config.isAutoRestoreQuickshop()) {
+            if (config.isAutoHookPlugins() && config.isAutoRestoreQuickshop()
+                    && shouldRestoreQuickShopData()) {
                 java.nio.file.Path qsDir = getServerRoot().resolve("plugins/QuickShop-Hikari");
                 if (java.nio.file.Files.isDirectory(qsDir)) {
                     java.nio.file.Path newestZip = null;
@@ -444,6 +456,16 @@ public class ClawBackup extends JavaPlugin {
             restoring = false; // 出错也要结束窗口，避免永久锁死备份
             Message.log("§e[ClawBackup] §c✗ 读取回档后命令失败: " + e.getMessage());
         }
+    }
+
+    private boolean shouldRestorePluginData(String pluginName) {
+        return config.isBackupPlugins()
+                && !config.getExcludedPlugins().contains(pluginName)
+                && !config.getRestoreExcludedPlugins().contains(pluginName);
+    }
+
+    private boolean shouldRestoreQuickShopData() {
+        return shouldRestorePluginData("QuickShop") && shouldRestorePluginData("QuickShop-Hikari");
     }
 
     /** 安全关闭备份管理器（停止进行中的任务 + 清理异步任务） */

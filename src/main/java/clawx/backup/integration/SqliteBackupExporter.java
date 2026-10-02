@@ -16,9 +16,11 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 /**
  * 通用 SQLite 数据库热备份（SQLite 官方 VACUUM INTO 在线一致性快照）。
@@ -35,7 +37,7 @@ public final class SqliteBackupExporter {
 
     private static final String DRIVER = "org.sqlite.JDBC";
     private static final String PREFIX = "sqlitebackup-";
-    private static final String[] EXTS = {".db", ".sqlite", ".sqlite3", ".db3"};
+    private static final List<String> DEFAULT_EXTS = Arrays.asList(".db", ".sqlite", ".sqlite3", ".db3");
 
     // 本次备份中已成功 VACUUM INTO 导出的 SQLite 文件（绝对路径），
     // 供 collectFiles 判断：这些原始文件无需再直接复制（避免冗余与不一致快照）
@@ -53,14 +55,20 @@ public final class SqliteBackupExporter {
 
     /** 备份前导出：扫描所有 SQLite 库，用 VACUUM INTO 生成一致性备份文件。返回导出成功数。 */
     public static int export(BackupConfig config) {
-        if (!config.isSqliteBackupEnabled()) return 0;
+        return export(config, null);
+    }
+
+    /** 备份前导出，并在每个数据库前执行可选的负载检查。 */
+    public static int export(BackupConfig config, Runnable checkpoint) {
         successful.clear(); // 每次备份独立，避免残留上次的记录
         failedDbs.clear();
-        List<Path> dbs = findSqliteDbs();
+        if (!config.isSqliteBackupEnabled() || !config.isBackupPlugins()) return 0;
+        List<Path> dbs = findSqliteDbs(config);
         if (dbs.isEmpty()) return 0;
         int ok = 0;
         List<String> failed = new ArrayList<>();
         for (Path db : dbs) {
+            if (checkpoint != null) checkpoint.run();
             if (isExcluded(config, db)) continue;
             try {
                 Class.forName(DRIVER);
@@ -78,6 +86,7 @@ public final class SqliteBackupExporter {
                 successful.add(db.toAbsolutePath().normalize());
                 ok++;
             } catch (Exception e) {
+                if (e instanceof CancellationException) throw (CancellationException) e;
                 failedDbs.add(db.toAbsolutePath().normalize());
                 failed.add(db.getFileName().toString());
             }
@@ -94,7 +103,8 @@ public final class SqliteBackupExporter {
     }
 
     /** 回档后恢复：ATTACH 备份库并通过 SQL 逐表复制数据到插件正在使用的库。返回恢复成功数。 */
-    public static int restore() {
+    public static int restore(BackupConfig config) {
+        if (!config.isSqliteBackupEnabled() || !config.isBackupPlugins()) return 0;
         List<Path> backups = new ArrayList<>();
         Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (Files.isDirectory(plugins)) {
@@ -103,7 +113,9 @@ public final class SqliteBackupExporter {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         String name = file.getFileName().toString();
-                        if (name.startsWith(PREFIX) && isSqliteName(name.substring(PREFIX.length()))) {
+                        if (name.startsWith(PREFIX) && isSqliteName(name.substring(PREFIX.length()),
+                                config.getSqliteBackupExtensions())
+                                && DatabaseBackupScope.includesForRestore(config, file)) {
                             backups.add(file);
                         }
                         return FileVisitResult.CONTINUE;
@@ -183,7 +195,8 @@ public final class SqliteBackupExporter {
      * 复制成功即删除快照文件；失败（文件仍被占用等）则保留，由下次启动的
      * restore()（ATTACH 逐表）兜底处理。
      */
-    public static int restoreByCopy() {
+    public static int restoreByCopy(BackupConfig config) {
+        if (!config.isSqliteBackupEnabled() || !config.isBackupPlugins()) return 0;
         List<Path> backups = new ArrayList<>();
         Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (Files.isDirectory(plugins)) {
@@ -192,7 +205,9 @@ public final class SqliteBackupExporter {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         String name = file.getFileName().toString();
-                        if (name.startsWith(PREFIX) && isSqliteName(name.substring(PREFIX.length()))) {
+                        if (name.startsWith(PREFIX) && isSqliteName(name.substring(PREFIX.length()),
+                                config.getSqliteBackupExtensions())
+                                && DatabaseBackupScope.includesForRestore(config, file)) {
                             backups.add(file);
                         }
                         return FileVisitResult.CONTINUE;
@@ -272,7 +287,7 @@ public final class SqliteBackupExporter {
     }
 
     /** 扫描 plugins/ 下所有 SQLite 数据库文件（跳过已生成的 sqlitebackup-* 备份） */
-    private static List<Path> findSqliteDbs() {
+    private static List<Path> findSqliteDbs(BackupConfig config) {
         List<Path> result = new ArrayList<>();
         Path plugins = ClawBackup.getServerRoot().resolve("plugins");
         if (!Files.isDirectory(plugins)) return result;
@@ -282,7 +297,8 @@ public final class SqliteBackupExporter {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     String name = file.getFileName().toString();
                     if (name.startsWith(PREFIX)) return FileVisitResult.CONTINUE;
-                    if (isSqliteName(name)) result.add(file);
+                    if (DatabaseBackupScope.includes(config, file)
+                            && isSqliteName(name, config.getSqliteBackupExtensions())) result.add(file);
                     return FileVisitResult.CONTINUE;
                 }
             });
@@ -292,15 +308,25 @@ public final class SqliteBackupExporter {
     }
 
     private static boolean isSqliteName(String name) {
-        String lower = name.toLowerCase();
+        return isSqliteName(name, configuredExtensions());
+    }
+
+    private static boolean isSqliteName(String name, List<String> extensions) {
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
         // 排除 H2 的 .mv.db/.trace.db/.lock.db（它们也以 .db 结尾，但不是 SQLite）
         if (lower.endsWith(".mv.db") || lower.endsWith(".trace.db") || lower.endsWith(".lock.db")) {
             return false;
         }
-        for (String ext : EXTS) {
+        for (String ext : extensions == null || extensions.isEmpty() ? DEFAULT_EXTS : extensions) {
             if (lower.endsWith(ext)) return true;
         }
         return false;
+    }
+
+    private static List<String> configuredExtensions() {
+        ClawBackup plugin = ClawBackup.getInstance();
+        BackupConfig config = plugin != null ? plugin.getBackupConfig() : null;
+        return config != null ? config.getSqliteBackupExtensions() : DEFAULT_EXTS;
     }
 
     /** 是否排除该库 */

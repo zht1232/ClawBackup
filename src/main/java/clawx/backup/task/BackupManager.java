@@ -4,6 +4,7 @@ import clawx.backup.ClawBackup;
 import clawx.backup.config.BackupConfig;
 import clawx.backup.integration.CloudUploader;
 import clawx.backup.integration.CustomNameplatesExporter;
+import clawx.backup.integration.ExternalDatabaseBackup;
 import clawx.backup.integration.H2BackupExporter;
 import clawx.backup.integration.MineStockExporter;
 import clawx.backup.integration.NotificationManager;
@@ -25,6 +26,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.Deflater;
@@ -235,21 +237,23 @@ public class BackupManager {
         long startTime = System.currentTimeMillis();
         List<String> skippedFiles = new ArrayList<>();
         int fileLockSkipped = 0;
-        int tpsPauses = 0;
+        TpsGuard tpsGuard = new TpsGuard();
+        List<Path> externalDatabaseFiles = new ArrayList<>();
         boolean autoSaveDisabled = false;
 
         try {
             // 1. TPS 预检
             if (config.isTpsProtectionEnabled()) {
                 double tps = getRecentTps();
-                if (tps < config.getTpsThreshold()) {
+                double startThreshold = config.getTpsStartThreshold();
+                if (tps < startThreshold) {
                     String warn = "TPS 过低 (" + String.format("%.1f", tps)
-                            + " < " + config.getTpsThreshold() + ")，备份延期 30 秒";
+                            + " < " + startThreshold + ")，备份延期 30 秒";
                     Message.log("§e[备份] §6⚠ " + warn);
                     if (sender != null) sender.sendMessage(Message.prefix("§6⚠ " + warn));
                     Thread.sleep(30000);
                     tps = getRecentTps();
-                    if (tps < config.getTpsThreshold()) {
+                    if (tps < startThreshold) {
                         String fail = "TPS 持续过低，放弃本次备份";
                         Message.log("§c[备份] §4✗ " + fail);
                         return new BackupResult(false, fail, null);
@@ -281,7 +285,8 @@ public class BackupManager {
             // 自动检测插件并添加导出命令
             if (config.isAutoHookPlugins()) {
                 // LuckPerms：备份前自动导出权限数据（生成 backup.json.gz 随备份打包）
-                if (Bukkit.getPluginManager().getPlugin("LuckPerms") != null) {
+                if (Bukkit.getPluginManager().getPlugin("LuckPerms") != null
+                        && shouldBackupPluginData("LuckPerms")) {
                     boolean hasLpExport = preCommands.stream().anyMatch(cmd ->
                         cmd.toLowerCase().startsWith("lp export") || cmd.toLowerCase().startsWith("luckperms export"));
                     if (!hasLpExport) {
@@ -290,8 +295,9 @@ public class BackupManager {
                     }
                 }
                 // QuickShop：备份前自动导出商店数据（quickshop export 生成 export-<时间戳>.zip）
-                if (Bukkit.getPluginManager().getPlugin("QuickShop") != null
-                        || Bukkit.getPluginManager().getPlugin("QuickShop-Hikari") != null) {
+                if ((Bukkit.getPluginManager().getPlugin("QuickShop") != null
+                        || Bukkit.getPluginManager().getPlugin("QuickShop-Hikari") != null)
+                        && shouldBackupQuickShopData()) {
                     boolean hasQsExport = preCommands.stream().anyMatch(cmd ->
                         cmd.toLowerCase().startsWith("qs export") || cmd.toLowerCase().startsWith("quickshop export"));
                     if (!hasQsExport) {
@@ -334,32 +340,47 @@ public class BackupManager {
             }
 
             // 3.7 CustomNameplates：H2 运行中被独占锁定，只能通过官方 API 导出玩家数据
-            if (config.isAutoHookPlugins() && CustomNameplatesExporter.isAvailable()) {
+            tpsGuard.checkpoint();
+            if (config.isAutoHookPlugins() && shouldBackupPluginData("CustomNameplates")
+                    && CustomNameplatesExporter.isAvailable()) {
                 setPhase("导出 CustomNameplates 数据...");
                 CustomNameplatesExporter.export();
             }
 
             // 3.8 MineStock：H2 带 AUTO_SERVER=TRUE，运行时 JDBC 直连导出持仓数据
-            if (config.isAutoHookPlugins() && MineStockExporter.isAvailable()) {
+            tpsGuard.checkpoint();
+            if (config.isAutoHookPlugins() && shouldBackupPluginData("MineStock")
+                    && MineStockExporter.isAvailable()) {
                 setPhase("导出 MineStock 数据...");
                 MineStockExporter.export();
             }
 
             // 3.9 通用 H2 兜底：尝试导出所有被锁的 H2 库（能连上的自动导出，失败跳过）
+            tpsGuard.checkpoint();
             if (config.isH2BackupEnabled()) {
                 setPhase("H2 兜底导出...");
-                H2BackupExporter.export(config);
+                H2BackupExporter.export(config, tpsGuard::checkpoint);
             }
 
             // 3.10 通用 SQLite 热备份（官方 VACUUM INTO 一致性快照，覆盖所有 SQLite 插件）
+            tpsGuard.checkpoint();
             if (config.isSqliteBackupEnabled()) {
                 setPhase("SQLite 热备份...");
-                SqliteBackupExporter.export(config);
+                SqliteBackupExporter.export(config, tpsGuard::checkpoint);
             }
+
+            // 3.11 外部数据库：调用管理员配置的原生客户端，快照进入 ZIP 后清理临时文件
+            tpsGuard.checkpoint();
+            Path serverRoot = ClawBackup.getServerRoot();
+            externalDatabaseFiles = ExternalDatabaseBackup.backup(
+                    config, serverRoot, tpsGuard::checkpoint, cancelled::get);
 
             // 4. 收集文件
             setPhase("统计待备份文件...");
             List<Path> allFiles = collectFiles();
+            for (Path externalFile : externalDatabaseFiles) {
+                if (!allFiles.contains(externalFile)) allFiles.add(externalFile);
+            }
             totalFiles.set(allFiles.size());
             processedFiles.set(0);
             processedBytes.set(0);
@@ -374,8 +395,6 @@ public class BackupManager {
 
             // 5. 压缩
             setPhase("压缩打包中...");
-            Path serverRoot = ClawBackup.getServerRoot();
-
             try (FileOutputStream fos = new FileOutputStream(zipFile.toFile());
                  BufferedOutputStream bos = new BufferedOutputStream(fos, 65536);
                  ZipOutputStream zos = new ZipOutputStream(bos)) {
@@ -391,18 +410,7 @@ public class BackupManager {
 
                 for (Path file : allFiles) {
                     if (cancelled.get()) throw new CancellationException("备份被取消");
-
-                    // TPS 检测（每 50 个文件检查一次）
-                    if (config.isTpsProtectionEnabled() && processedFiles.get() > 0
-                            && processedFiles.get() % 50 == 0) {
-                        double tps = getRecentTps();
-                        if (tps < config.getTpsThreshold()) {
-                            tpsPauses++;
-                            Message.log("§e[备份] §6⏸ TPS " + String.format("%.1f", tps)
-                                    + " < " + config.getTpsThreshold() + "，暂停5秒...");
-                            Thread.sleep(5000);
-                        }
-                    }
+                    tpsGuard.checkpoint();
 
                     Path relativePath = serverRoot.relativize(file);
                     String entryName = relativePath.toString().replace('\\', '/');
@@ -422,7 +430,7 @@ public class BackupManager {
                         zos.putNextEntry(entry);
                         entryOpen = true;
 
-                        boolean success = copyFileWithRetry(file, zos, throttleKBps, chunkBytes);
+                        boolean success = copyFileWithRetry(file, zos, throttleKBps, chunkBytes, tpsGuard);
                         zos.closeEntry();
                         entryOpen = false;
 
@@ -454,6 +462,7 @@ public class BackupManager {
 
             String sizeStr = formatSize(fileSize);
             String timeStr = formatTime(elapsed);
+            int tpsPauses = tpsGuard.getPauseCount();
 
             Message.log("§e[备份] §a==================================");
             Message.log("§e[备份] §a  ✅ 备份完成!");
@@ -533,6 +542,7 @@ public class BackupManager {
                         "原因: " + failReason));
             return new BackupResult(false, e.getMessage(), null);
         } finally {
+            ExternalDatabaseBackup.cleanup(ClawBackup.getServerRoot(), externalDatabaseFiles);
             // 兜底恢复自动保存（任何退出路径都会执行）
             restoreAutoSave(autoSaveDisabled);
         }
@@ -759,7 +769,7 @@ public class BackupManager {
 
     // ===== 带重试和限速的文件复制 =====
     private boolean copyFileWithRetry(Path source, OutputStream dest,
-                                       int throttleKBps, int chunkBytes) {
+                                       int throttleKBps, int chunkBytes, TpsGuard tpsGuard) {
         int maxRetries = config.getFileLockRetries();
         int retryDelay = config.getFileLockRetryDelay();
 
@@ -771,6 +781,7 @@ public class BackupManager {
                 long chunkStart = System.nanoTime();
 
                 while ((read = is.read(buffer)) != -1) {
+                    tpsGuard.checkpoint();
                     dest.write(buffer, 0, read);
 
                     // IO 限速
@@ -797,6 +808,57 @@ public class BackupManager {
             }
         }
         return false;
+    }
+
+    /** TPS 负载保护：按时间检查，因此单个大文件也会及时让出备份线程。 */
+    private final class TpsGuard {
+        private final long checkIntervalNs = TimeUnit.SECONDS.toNanos(2);
+        private final long pauseNs = TimeUnit.SECONDS.toNanos(5);
+
+        private long lastCheckNanos;
+        private int pauseCount;
+
+        void checkpoint() {
+            if (!config.isTpsProtectionEnabled()) return;
+            if (cancelled.get()) throw new CancellationException("备份已取消");
+
+            long now = System.nanoTime();
+            if (lastCheckNanos != 0 && now - lastCheckNanos < checkIntervalNs) return;
+            lastCheckNanos = now;
+
+            double tps = getRecentTps();
+            if (tps >= config.getTpsThreshold()) return;
+
+            pauseCount++;
+            Message.log("§e[备份] §6⏸ TPS " + String.format("%.1f", tps)
+                    + " < " + config.getTpsThreshold() + "，暂停5秒...");
+            long pauseUntil = System.nanoTime() + pauseNs;
+            while (System.nanoTime() < pauseUntil) {
+                if (cancelled.get()) throw new CancellationException("备份已取消");
+                long remaining = pauseUntil - System.nanoTime();
+                try {
+                    TimeUnit.NANOSECONDS.sleep(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(250)));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new CancellationException("备份任务已中断");
+                }
+            }
+            lastCheckNanos = System.nanoTime();
+        }
+
+        int getPauseCount() {
+            return pauseCount;
+        }
+    }
+
+    private boolean shouldBackupPluginData(String pluginName) {
+        return config.isBackupPlugins() && !config.getExcludedPlugins().contains(pluginName);
+    }
+
+    private boolean shouldBackupQuickShopData() {
+        return config.isBackupPlugins()
+                && !config.getExcludedPlugins().contains("QuickShop")
+                && !config.getExcludedPlugins().contains("QuickShop-Hikari");
     }
 
     // ===== 清理旧备份（返回删除数量）=====
@@ -845,9 +907,9 @@ public class BackupManager {
         List<String> dbEntries = new ArrayList<>();
         List<String> otherLocked = new ArrayList<>();
         for (String entry : skippedFiles) {
-            String lower = entry.toLowerCase();
-            if (lower.endsWith(".mv.db") || lower.endsWith(".db") || lower.endsWith(".sqlite")
-                    || lower.endsWith(".sqlite3") || lower.endsWith(".db3")) {
+            String lower = entry.toLowerCase(Locale.ROOT);
+            boolean sqliteFile = config.getSqliteBackupExtensions().stream().anyMatch(lower::endsWith);
+            if (lower.endsWith(".mv.db") || sqliteFile) {
                 dbEntries.add(entry);
             } else {
                 otherLocked.add(entry);
@@ -1105,10 +1167,14 @@ public class BackupManager {
     }
 
     // ===== 实际回档（在 onDisable 中调用，服务器关闭时执行）=====
-    public void doRestore(String zipFilePath) {
+    public boolean doRestore(String zipFilePath) {
         long startTime = System.currentTimeMillis();
         Path zipFile = Paths.get(zipFilePath);
         Path serverRoot = ClawBackup.getServerRoot();
+        if (!Files.isRegularFile(zipFile)) {
+            Message.log("§c[回档] §4备份文件不存在，取消恢复: §7" + zipFile);
+            return false;
+        }
 
         Message.log("§e[回档] §f==================================");
         Message.log("§e[回档] §f开始执行回档: §b" + zipFile.getFileName());
@@ -1195,7 +1261,7 @@ public class BackupManager {
         } catch (Exception e) {
             Message.log("§c[回档] §4回档失败: " + e.getMessage());
             e.printStackTrace();
-            return;
+            return false;
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
@@ -1214,6 +1280,7 @@ public class BackupManager {
         }
         Message.log("§e[回档] §a==================================");
         Message.log("§e[回档] §a✔ 请启动服务器以完成回档");
+        return true;
     }
 
     /**
@@ -1303,15 +1370,25 @@ public class BackupManager {
     // ===== 进度 =====
     private void startProgressDisplay() {
         stopProgressDisplay();
+        AtomicInteger lastPercent = new AtomicInteger(-1);
+        AtomicLong lastLogAt = new AtomicLong(0);
         progressTask = SchedulerUtil.runAsyncTimer(plugin, 100L, config.getProgressInterval(), () -> {
             if (!running.get()) {
                 if (progressTask != null) progressTask.cancel();
                 return;
             }
             long p = processedFiles.get(), t = totalFiles.get();
-            if (t > 0)
+            if (t > 0) {
+                int percent = (int) (p * 100 / t);
+                long now = System.currentTimeMillis();
+                boolean changed = lastPercent.get() != percent;
+                boolean heartbeat = now - lastLogAt.get() >= 60_000L;
+                if (!changed && !heartbeat) return;
+                lastPercent.set(percent);
+                lastLogAt.set(now);
                 Message.log("§e[进度] §f" + currentPhase + " §8["
-                        + (p * 100 / t) + "%] §f" + p + "/" + t);
+                        + percent + "%] §f" + p + "/" + t);
+            }
         });
     }
 

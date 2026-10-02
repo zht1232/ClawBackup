@@ -52,9 +52,9 @@ storage:
   #   路径含空格时用引号包住即可（上面已演示）。
   backup-path: 'backups'
 
-  # ZIP 压缩等级 (0=仅存储不压缩, 1=最快, 6=默认, 9=最高压缩)
-  # 注意: 等级越高越慢但文件越小
-  compression-level: 6
+  # ZIP 压缩等级 (0=不压缩, 1=最快, 9=压缩率最高)
+  # 默认 1，降低备份期间 CPU 占用；需要更小备份包时可调高
+  compression-level: 1
 
 
 # ---------- 调度设置 ----------
@@ -111,9 +111,9 @@ advanced:
     - thumbs.db
 
   # ===== IO 限速（防止备份把磁盘 IO 吃满卡服） =====
-  # 限制备份写入速度 (KB/s)，0 = 不限速
-  # 建议: 机械硬盘 5000-10000，SSD 可设 0（不限速）
-  io-throttle-kbps: 0
+  # 限制备份读取/压缩速度 (KB/s)，0 = 不限速
+  # 默认 10000；机械硬盘仍影响 TPS 时可降到 5000，SSD 可设 0
+  io-throttle-kbps: 10000
 
   # IO 限速块大小 (KB)，每次写这么多数据后检查速度
   io-throttle-chunk-kb: 64
@@ -124,9 +124,13 @@ advanced:
   # Spigot 环境下自动回退为 20.0，不触发 TPS 保护
   tps-protection-enabled: true
 
-  # TPS 阈值（低于此值触发 5 秒暂停保护）
-  # Paper 服务器正常 TPS 为 20.0
-  tps-threshold: 15.0
+  # 备份运行期间的 TPS 阈值（低于此值时暂停 5 秒，再继续检查）
+  # 按时间检查，不会等到处理完大量文件才响应
+  tps-threshold: 18.0
+
+  # 启动备份前的最低 TPS（低于此值等待 30 秒，仍低则跳过本次备份）
+  # 与运行期间阈值分开，避免服务器在 15-18 TPS 时完全无法启动备份
+  tps-start-threshold: 15.0
 
   # ===== 广播倒计时 =====
   # 备份开始前是否在聊天框广播倒计时
@@ -143,8 +147,8 @@ notification:
   # 是否显示备份进度（控制台）
   show-progress: true
 
-  # 进度更新间隔（tick，20 tick = 1秒）
-  progress-interval-ticks: 20
+  # 进度更新间隔（tick，20 tick = 1秒）；相同百分比最多每分钟提示一次
+  progress-interval-ticks: 200
 
 # ---------- 回档设置 ----------
 restore:
@@ -197,8 +201,30 @@ h2-backup:
 sqlite-backup:
   # 是否启用
   enabled: true
+  # SQLite 数据库文件扩展名；插件使用自定义扩展名时可在此追加（无需带点也会自动补全）
+  extensions:
+    - .db
+    - .sqlite
+    - .sqlite3
+    - .db3
   # 排除的数据库文件（相对路径或文件名包含匹配）
   excluded: []
+
+# ---------- 外部数据库原生命令备份 ----------
+# 默认关闭。使用服务器已安装的数据库原生客户端，不内置数据库驱动或命令行工具。
+# backup-command 将标准输出保存为快照；若命令参数包含 {output}，工具需自行写入该路径。
+# restore-command 默认从快照标准输入读取；若参数包含 {input}，工具从该路径读取。
+# 参数按列表直接传给进程，不经过 shell；{server-root} 可用作服务器目录占位符。
+# 命令失败或超时会使本次备份失败，避免生成缺少外部数据库的备份包。
+external-databases:
+  enabled: false
+  jobs: []
+  # timeout-seconds 范围 10-3600 秒
+  #   - name: player-data
+  #     timeout-seconds: 300
+  #     backup-command: [database-dump-tool, --output, '{output}', --database, player-data]
+  #     restore-command: [database-restore-tool, --input, '{input}']
+  #     environment: {DB_HOST: '127.0.0.1'}
 
 # ---------- 云备份上传 ----------
 cloud-backup:

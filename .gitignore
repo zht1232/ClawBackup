@@ -3,6 +3,8 @@ build/
 build_tmp/
 *.class
 libs/
+/.clawbackup-external-databases/
+/.clawbackup-external-db-logs/
 
 # ===== IDE / 编辑器 =====
 .idea/

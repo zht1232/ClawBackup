@@ -15,6 +15,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.LinkedHashSet;
 
@@ -41,7 +42,7 @@ public class BackupConfig {
 
     // ==== 存储设置 ====
     private String backupPath = "backups";
-    private int compressionLevel = 6;
+    private int compressionLevel = 1;
 
     // ==== 调度设置 ====
     private boolean scheduleEnabled = true;
@@ -64,12 +65,13 @@ public class BackupConfig {
     private List<String> excludeFileTypes = Arrays.asList(".log", ".tmp", ".DS_Store", "thumbs.db");
 
     // ==== IO 限速 (防止备份卡服) ====
-    private int ioThrottleKBps = 0;
+    private int ioThrottleKBps = 10000;
     private int ioThrottleChunkKB = 64;
 
     // ==== TPS 保护 ====
     private boolean tpsProtectionEnabled = true;
-    private double tpsThreshold = 15.0;
+    private double tpsThreshold = 18.0;
+    private double tpsStartThreshold = 15.0;
 
     // ==== 广播倒计时 ====
     private boolean broadcastCountdown = true;
@@ -78,7 +80,7 @@ public class BackupConfig {
     // ==== 通知设置 ====
     private boolean notifyPlayers = true;
     private boolean showProgress = true;
-    private int progressInterval = 20;
+    private int progressInterval = 200;
 
     // ==== 回档设置 ====
     private boolean autoStopAfterRestore = true;
@@ -95,6 +97,11 @@ public class BackupConfig {
     // ==== 通用 SQLite 数据库热备份 ====
     private boolean sqliteBackupEnabled = true;
     private List<String> sqliteBackupExcluded = Collections.emptyList();
+    private List<String> sqliteBackupExtensions = Arrays.asList(".db", ".sqlite", ".sqlite3", ".db3");
+
+    // ==== 外部数据库原生命令适配 ====
+    private boolean externalDatabaseBackupEnabled = false;
+    private List<ExternalDatabaseJob> externalDatabaseJobs = Collections.emptyList();
 
     // ==== 云备份上传 ====
     private boolean cloudBackupEnabled = false;
@@ -203,6 +210,7 @@ public class BackupConfig {
         // TPS 保护
         tpsProtectionEnabled = config.getBoolean("advanced.tps-protection-enabled", tpsProtectionEnabled);
         tpsThreshold = clamp(config.getDouble("advanced.tps-threshold", tpsThreshold), 5.0, 19.0);
+        tpsStartThreshold = clamp(config.getDouble("advanced.tps-start-threshold", tpsStartThreshold), 5.0, 19.0);
 
         // 广播倒计时
         broadcastCountdown = config.getBoolean("advanced.broadcast-countdown", broadcastCountdown);
@@ -211,7 +219,8 @@ public class BackupConfig {
         // 通知
         notifyPlayers = config.getBoolean("notification.notify-players", notifyPlayers);
         showProgress = config.getBoolean("notification.show-progress", showProgress);
-        progressInterval = Math.max(1, config.getInt("notification.progress-interval-ticks", progressInterval));
+        progressInterval = Math.max(20, Math.min(1200,
+                config.getInt("notification.progress-interval-ticks", progressInterval)));
 
         // 回档设置
         autoStopAfterRestore = config.getBoolean("restore.auto-stop-after-restore", autoStopAfterRestore);
@@ -228,6 +237,12 @@ public class BackupConfig {
         // 通用 SQLite 热备份
         sqliteBackupEnabled = config.getBoolean("sqlite-backup.enabled", sqliteBackupEnabled);
         sqliteBackupExcluded = config.getStringList("sqlite-backup.excluded");
+        sqliteBackupExtensions = normalizeSqliteExtensions(config.getStringList("sqlite-backup.extensions"));
+
+        // 外部数据库原生命令适配
+        externalDatabaseBackupEnabled = config.getBoolean(
+                "external-databases.enabled", externalDatabaseBackupEnabled);
+        externalDatabaseJobs = loadExternalDatabaseJobs(config.getMapList("external-databases.jobs"));
 
         // 云备份上传
         cloudBackupEnabled = config.getBoolean("cloud-backup.enabled", cloudBackupEnabled);
@@ -259,6 +274,75 @@ public class BackupConfig {
 
         // 调试：记录加载的路径
         plugin.getLogger().info("[配置] 备份路径: '" + backupPath + "' → 解析: " + getResolvedBackupPath());
+    }
+
+    private static List<String> normalizeSqliteExtensions(List<String> extensions) {
+        List<String> source = (extensions == null || extensions.isEmpty())
+                ? Arrays.asList(".db", ".sqlite", ".sqlite3", ".db3") : extensions;
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String value : source) {
+            if (value == null) continue;
+            String extension = value.trim().toLowerCase(java.util.Locale.ROOT);
+            if (extension.isEmpty()) continue;
+            if (!extension.startsWith(".")) extension = "." + extension;
+            if (extension.length() > 1) normalized.add(extension);
+        }
+        if (normalized.isEmpty()) normalized.addAll(Arrays.asList(".db", ".sqlite", ".sqlite3", ".db3"));
+        return new java.util.ArrayList<>(normalized);
+    }
+
+    private List<ExternalDatabaseJob> loadExternalDatabaseJobs(List<Map<?, ?>> entries) {
+        List<ExternalDatabaseJob> jobs = new java.util.ArrayList<>();
+        if (entries == null) return jobs;
+        int index = 0;
+        for (Map<?, ?> entry : entries) {
+            index++;
+            if (entry == null) {
+                plugin.getLogger().warning("[配置] external-databases.jobs[" + index + "] 不是对象，已忽略。");
+                continue;
+            }
+            String name = entry.get("name") == null ? "" : String.valueOf(entry.get("name")).trim();
+            List<String> backup = asStringList(entry.get("backup-command"));
+            List<String> restore = asStringList(entry.get("restore-command"));
+            if (name.isEmpty() || backup.isEmpty()) {
+                plugin.getLogger().warning("[配置] external-databases.jobs[" + index
+                        + "] 缺少 name 或 backup-command，已忽略。");
+                continue;
+            }
+
+            Map<String, String> environment = new java.util.LinkedHashMap<>();
+            Object rawEnvironment = entry.get("environment");
+            if (rawEnvironment instanceof Map) {
+                for (Map.Entry<?, ?> variable : ((Map<?, ?>) rawEnvironment).entrySet()) {
+                    if (variable.getKey() != null && variable.getValue() != null) {
+                        environment.put(String.valueOf(variable.getKey()), String.valueOf(variable.getValue()));
+                    }
+                }
+            }
+
+            int timeoutSeconds = 300;
+            Object timeout = entry.get("timeout-seconds");
+            if (timeout instanceof Number) timeoutSeconds = ((Number) timeout).intValue();
+            else if (timeout != null) {
+                try { timeoutSeconds = Integer.parseInt(String.valueOf(timeout)); }
+                catch (NumberFormatException ignored) {}
+            }
+            timeoutSeconds = Math.max(10, Math.min(3600, timeoutSeconds));
+            jobs.add(new ExternalDatabaseJob(name, backup, restore, environment, timeoutSeconds));
+        }
+        return jobs;
+    }
+
+    private static List<String> asStringList(Object value) {
+        List<String> result = new java.util.ArrayList<>();
+        if (value instanceof List) {
+            for (Object item : (List<?>) value) {
+                if (item == null) continue;
+                String text = String.valueOf(item);
+                if (!text.trim().isEmpty()) result.add(text);
+            }
+        }
+        return result;
     }
 
     public void reload() {
@@ -311,6 +395,7 @@ public class BackupConfig {
 
     public boolean isTpsProtectionEnabled() { return tpsProtectionEnabled; }
     public double getTpsThreshold() { return tpsThreshold; }
+    public double getTpsStartThreshold() { return tpsStartThreshold; }
 
     public boolean isBroadcastCountdown() { return broadcastCountdown; }
     public int getCountdownSeconds() { return countdownSeconds; }
@@ -333,6 +418,10 @@ public class BackupConfig {
     // ===== 通用 SQLite 热备份 =====
     public boolean isSqliteBackupEnabled() { return sqliteBackupEnabled; }
     public List<String> getSqliteBackupExcluded() { return sqliteBackupExcluded; }
+    public List<String> getSqliteBackupExtensions() { return sqliteBackupExtensions; }
+
+    public boolean isExternalDatabaseBackupEnabled() { return externalDatabaseBackupEnabled; }
+    public List<ExternalDatabaseJob> getExternalDatabaseJobs() { return externalDatabaseJobs; }
 
     // ===== 云备份上传 =====
     public boolean isCloudBackupEnabled() { return cloudBackupEnabled; }

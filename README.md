@@ -5,7 +5,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 > 支持 **Paper / Purpur / Folia** · MC **1.20.1 ~ 26.2** · Java 17+
-> 当前版本 **1.6.15**
+> 当前版本 **1.6.16**
 
 ---
 
@@ -13,17 +13,17 @@
 
 - 📦 **一键备份**：打包 `plugins/` 与世界目录为 ZIP（自动发现多世界）
 - 💾 **跨盘备份**：`backup-path` 支持绝对路径，可存到任意磁盘
-- 🗜️ **压缩可调**：ZIP/Deflate 等级 0–9
+- 🗜️ **压缩可调**：ZIP/Deflate 等级 0–9，默认快速压缩以降低 CPU 占用
 - 🧠 **智能备份**：在线玩家低于阈值时自动跳过
 - ⏰ **定时备份**：自动定时 + 启动延迟备份
 - 🔄 **一键回档**：`/cb restore <序号> --force`，服务器关闭时完整恢复（含目标目录清理，避免残留文件）
-- 🚦 **IO 限速 + TPS 保护**：防止备份拖垮服务器性能
+- 🚦 **IO 限速 + TPS 保护**：按时间检查 TPS，并在大文件复制中让出备份线程
 - 🧹 **旧备份自动清理**：按数量保留
 - ⚡ **热重载**：无需重启服务器
 - ☁️ **云备份上传**：备份完成后自动上传（GitHub Release / 百度网盘）
 - 🔔 **告警通知**：备份开始/成功/失败自动通知（邮件 / 飞书 / 钉钉）
 - 🔌 **插件钩子**：自动检测 LuckPerms / QuickShop / CustomNameplates（备份前导出、回档后导入）
-- 🗄️ **数据库热备份**：SQLite 用 `VACUUM INTO` 一致性快照、H2 用 `SCRIPT TO` 导出、MineStock 用 JDBC 直连；回档后 SQLite 直接复制恢复；备份完成输出「文件跳过汇总」（✅ 已覆盖 / ❌ 未备份）一目了然
+- 🗄️ **数据库热备份**：SQLite 用 `VACUUM INTO` 一致性快照、H2 用 `SCRIPT TO` 导出、MineStock 用 JDBC 直连；另可配置外部数据库原生工具；备份完成输出覆盖汇总
 
 ## 支持平台
 
@@ -68,6 +68,30 @@
 - `restore`：回档设置（自动关服、回档排除插件、回档后命令）
 - `cloud-backup`：云备份上传（GitHub / 百度网盘）
 - `notify`：告警通知（邮件 / 飞书 / 钉钉）
+- `external-databases`：可选外部数据库原生命令适配（需自行安装客户端）
+
+### 外部数据库任务
+
+```yaml
+external-databases:
+  enabled: true
+  jobs:
+    - name: player-data
+      timeout-seconds: 300
+      backup-command:
+        - database-dump-tool
+        - --output
+        - '{output}'
+        - --database
+        - player-data
+      restore-command:
+        - database-restore-tool
+        - --input
+        - '{input}'
+      environment: {}
+```
+
+将示例工具名和参数替换成对应数据库客户端支持的参数。命令必须是参数列表，不经过 shell；备份工具若把转储写到标准输出，可省略 `{output}`；恢复工具若从标准输入读取，可省略 `{input}`。`{server-root}` 可替换为服务器根目录。建议用数据库客户端的凭据文件或环境变量，避免将密码写入命令参数。外部备份参数要采用该数据库支持的一致性快照模式；自动恢复命令可能覆盖数据库内容，只会在管理员执行回档时运行。
 
 ### 云备份上传示例
 
@@ -112,15 +136,20 @@ notify:
 
 ## ⚠️ 注意点
 
-1. **数据库热备份覆盖情况**：被插件锁定的数据库文件无法直接复制，ClawBackup 通过多种方式保证数据进备份：
-   - SQLite（`.db` / `.sqlite`）→ `VACUUM INTO` 一致性快照，回档时直接复制恢复
-   - H2（`.mv.db`）→ 能连上的用 `SCRIPT TO` 导出 SQL（默认排它锁、无 `AUTO_SERVER` 的库连不上）
-   - LuckPerms / QuickShop / CustomNameplates / MineStock → 自动官方导出（数据有快照）
-   - 备份完成时输出「文件跳过汇总」：`✅ 已覆盖`（数据在备份包内）与 `❌ 未备份`（如 ajLeaderboards 这类无导出钩子且锁库的插件，可考虑迁移 MySQL）
-2. **凭据安全**：GitHub token、SMTP 授权码等**只存在你服务器上的 `config.yml`**，不会被提交到仓库（`libs/` 等已 gitignore）
-3. **邮件依赖**：构建时会自动下载 JavaMail 并打进 jar（构建脚本需联网一次）
-4. **123云盘**：无官方开放 API，暂不支持
-5. **最低要求**：仅支持 Paper 1.20.1+ / Purpur / Folia（纯 Spigot 无区域调度 API，不支持；需 Java 17+）
+1. **数据库热备份覆盖情况**：
+   - SQLite：扫描已选择备份的插件目录，按 `sqlite-backup.extensions` 中的扩展名查找（默认 `.db` / `.sqlite` / `.sqlite3` / `.db3`），用 `VACUUM INTO` 生成快照并在回档时恢复；自定义扩展名可追加到配置。
+   - H2 2.x：处理 `.mv.db` 文件；被锁的库只有在能以 `AUTO_SERVER=TRUE` 连接时才能用 `SCRIPT TO` 导出。独占锁的库可能无法覆盖。
+   - LuckPerms / QuickShop / CustomNameplates / MineStock：使用插件专用导出。
+   - MySQL、MariaDB、PostgreSQL、MongoDB、Redis 等外部数据库不会自动发现连接信息；可用 `external-databases.jobs` 配置服务器已安装的原生导出/恢复工具。该功能默认关闭，失败或超时会让备份失败，避免生成看似成功但缺数据库的备份。
+   - 外部工具的事务快照参数由管理员按数据库类型配置。`backup-command` 参数列表支持 `{output}` 和 `{server-root}`；恢复命令支持 `{input}`。没有配置恢复命令时，快照保留在回档后的 `.clawbackup-external-databases/<run-id>/` 目录供手动恢复。
+   - 备份完成时输出「文件跳过汇总」：`✅ 已覆盖`（数据在备份包内）与 `❌ 未备份`。关闭插件目录备份或排除某插件时，该插件的内置数据库导出也会跳过。
+2. **备份范围**：默认归档世界目录和插件目录，不包含服务器根目录中的 `server.properties`、Paper/Bukkit 配置、启动脚本或服务端 JAR。
+3. **性能默认值**：压缩等级 1、ZIP 输入限速 10000 KB/s、TPS 运行阈值 18、控制台进度默认每 10 秒检查一次。已有服务器不会覆盖自己的配置文件；升级后请在 `plugins/ClawBackup/config.yml` 手动调整这些值（含 `tps-threshold`、`compression-level`、`io-throttle-kbps` 和 `progress-interval-ticks`）。
+4. **外部工具安全**：外部数据库配置位于 ClawBackup 插件目录，该目录默认不进备份；请单独保存配置。命令以参数数组启动，不经 shell，不会把完整命令写入日志。建议用数据库客户端的凭据文件或环境变量，避免在命令参数中填写密码。命令报错时查看 `.clawbackup-external-db-logs/`；外部恢复命令只在管理员执行回档时运行，可能覆盖数据库内容。
+5. **凭据安全**：GitHub token、SMTP 授权码等**只存在你服务器上的 `config.yml`**，不会被提交到仓库（`libs/` 等已 gitignore）
+6. **邮件依赖**：构建时会自动下载 JavaMail 并打进 jar（构建脚本需联网一次）
+7. **123云盘**：无官方开放 API，暂不支持
+8. **最低要求**：仅支持 Paper 1.20.1+ / Purpur / Folia（纯 Spigot 无区域调度 API，不支持；需 Java 17+）
 
 ## 构建
 
@@ -141,6 +170,7 @@ build.bat
 
 ## 更新历史
 
+- **1.6.16**：备份默认压缩降至 Lv1、ZIP 限速默认 10000 KB/s、控制台进度默认每 10 秒且抑制重复百分比；TPS 检查改为按时间并进入大文件复制循环；区分备份启动阈值与运行阈值；SQLite 扩展名可配置；内置导出和恢复遵守插件备份开关及排除项；新增可选外部数据库原生命令备份/恢复。
 - **1.6.15**：彻底消除备份完成聊天框重复提示 — 玩家执行备份时只靠广播（文件名并入完成行），不再额外私聊「文件/未备份」，控制台仍显示完整详情
 - **1.6.14**：修复 MineStock 持仓数据恢复/导出失败（MineStock 懒初始化 holdings 表，回档后 3 秒表未建导致「Table HOLDINGS not found」）——新增等待表出现的轮询（最多 60 秒、不抢建空库），备份与恢复都生效
 - **1.6.13**：修复回档时「检测到正在运行的备份任务」误报（回档准备与备份共用 running 标志，插件 onDisable 提前关服导致 onDisable 误判）；回档标记改为轮询等待（不再依赖时序巧合）；回档禁用插件前打印说明（插件「运行时禁用」警告属正常）
